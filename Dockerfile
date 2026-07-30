@@ -20,11 +20,13 @@
 # Windows-generated lockfile. `npm install` reconciles instead of
 # refusing, at the cost of strict reproducibility we don't need here.
 #
-# Running migrations: after this image is deployed (or before, via
-# EasyPanel's pre-deploy command), run:
-#   node scripts/migrate.mjs main
-#   node scripts/migrate.mjs storage
-# Idempotent — safe to run on every deploy.
+# Migrations run automatically on every container start (see CMD
+# below) — EasyPanel's API doesn't expose a one-off "run a command
+# in this container" step the way `ssh`+`docker exec` would, so
+# baking it into startup is the reliable option. Both migration
+# targets are idempotent (drizzle-orm's migrator tracks what's
+# already applied), so this is a no-op on restarts with nothing new
+# to apply.
 
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -62,4 +64,4 @@ USER divarytalk
 EXPOSE 3000
 ENV PORT=3000
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "node scripts/migrate.mjs main && node scripts/migrate.mjs storage && npm start"]
