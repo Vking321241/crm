@@ -40,7 +40,8 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "storage-db:generate": "drizzle-kit generate --config drizzle.storage.config.ts",
-    "migrate": "node scripts/migrate.mjs main && node scripts/migrate.mjs storage"
+    "migrate": "node scripts/migrate.mjs main && node scripts/migrate.mjs storage",
+    "seed:platform-owner": "node scripts/seed-platform-owner.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
