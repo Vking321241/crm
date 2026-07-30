@@ -8,6 +8,13 @@
       "when": 1785364220308,
       "tag": "0000_yielding_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785374672621,
+      "tag": "0001_cooing_metal_master",
+      "breakpoints": true
     }
   ]
 }

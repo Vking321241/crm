@@ -58,6 +58,7 @@ COPY --from=builder /app/scripts ./scripts
 # EasyPanel persistent volume at this path so uploads survive
 # redeploys.
 RUN mkdir -p /data/storage && chown -R divarytalk:nodejs /data/storage
+ENV STORAGE_ROOT=/data/storage
 
 USER divarytalk
 

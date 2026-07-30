@@ -1,5 +1,5 @@
 // ============================================================
-// DivaryTalk — main application database schema (Fatia 2).
+// DivaryTalk — main application database schema.
 //
 // Plain Postgres, no Supabase. Authorization has no database-level
 // safety net (no RLS) — every query in the codebase MUST filter by
@@ -9,11 +9,22 @@
 // account id as an explicit parameter rather than relying on an
 // ambient session like Supabase's `auth.uid()` + RLS did.
 //
-// Scope note: this schema only covers what Fatia 2 needs (auth +
-// accounts + WhatsApp instances). The rest of the CRM (contacts,
-// conversations, pipelines, broadcasts, …) still references the old
-// Supabase-flavored tables in supabase/migrations/ and is out of
-// scope until Fatia 3 ports those screens onto this same database.
+// Fatia 3 ported the rest of the CRM (contacts, conversations,
+// pipelines, broadcasts, notifications, presence) off the old
+// Supabase-flavored tables in supabase/migrations/ onto this file.
+// Business logic that used to live in SECURITY DEFINER functions or
+// RLS-dependent triggers (notify_conversation_assigned,
+// filter_contacts_by_tags, touch_presence, set_member_role, …) now
+// lives in the API routes that touch these tables — see each
+// route's comments for the SQL migration it replaces. Aggregate
+// triggers with no auth.uid() dependency (broadcast recipient
+// counts, updated_at) stayed as plain SQL triggers, added via raw
+// SQL in the generated migration.
+//
+// Dropped entirely (not ported): `whatsapp_config` / `message_templates`
+// (Meta Cloud API — the product now sends everything through UAZAPI,
+// see src/lib/whatsapp/uazapi-client.ts) and `account_invitations`
+// (superseded by `auth_tokens`, Fatia 2).
 // ============================================================
 
 import {
@@ -22,9 +33,14 @@ import {
   text,
   boolean,
   integer,
+  numeric,
+  date,
+  jsonb,
   timestamp,
   uniqueIndex,
+  index,
   pgEnum,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -162,3 +178,454 @@ export const whatsappInstances = pgTable(
   },
   (table) => [uniqueIndex("idx_whatsapp_instances_account").on(table.accountId)],
 );
+
+// ============================================================
+// Fatia 3 — core CRM tables
+// ============================================================
+
+export const conversationStatusEnum = pgEnum("conversation_status", [
+  "open",
+  "pending",
+  "closed",
+]);
+
+export const senderTypeEnum = pgEnum("sender_type", ["customer", "agent", "bot"]);
+
+export const messageContentTypeEnum = pgEnum("message_content_type", [
+  "text",
+  "image",
+  "document",
+  "audio",
+  "video",
+  "location",
+  "interactive",
+]);
+
+export const messageStatusEnum = pgEnum("message_status", [
+  "sending",
+  "sent",
+  "delivered",
+  "read",
+  "failed",
+]);
+
+export const reactionActorTypeEnum = pgEnum("reaction_actor_type", ["customer", "agent"]);
+
+export const quickReplyKindEnum = pgEnum("quick_reply_kind", ["text", "interactive"]);
+
+export const dealStatusEnum = pgEnum("deal_status", ["active", "won", "lost"]);
+
+export const broadcastStatusEnum = pgEnum("broadcast_status", [
+  "draft",
+  "scheduled",
+  "sending",
+  "sent",
+  "failed",
+]);
+
+export const broadcastRecipientStatusEnum = pgEnum("broadcast_recipient_status", [
+  "pending",
+  "sent",
+  "delivered",
+  "read",
+  "replied",
+  "failed",
+]);
+
+export const notificationTypeEnum = pgEnum("notification_type", ["conversation_assigned"]);
+
+export const presenceStatusEnum = pgEnum("presence_status", ["online", "away"]);
+
+// ------------------------------------------------------------
+// contacts — `phoneNormalized` is a STORED generated column, kept
+// in lockstep with `phone` by Postgres (mirrors normalizePhone()).
+// UNIQUE(account_id, phone_normalized) is the dedupe guarantee
+// (migration 022) — every write path (manual create, CSV import,
+// inbound webhook) relies on this, not app-level checks alone.
+// ------------------------------------------------------------
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    phone: text("phone").notNull(),
+    phoneNormalized: text("phone_normalized").generatedAlwaysAs(
+      sql`regexp_replace(phone, '\\D', '', 'g')`,
+    ),
+    name: text("name"),
+    email: text("email"),
+    company: text("company"),
+    avatarUrl: text("avatar_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_contacts_account").on(table.accountId),
+    uniqueIndex("idx_contacts_account_phone_normalized")
+      .on(table.accountId, table.phoneNormalized)
+      .where(sql`${table.phoneNormalized} <> ''`),
+  ],
+);
+
+export const tags = pgTable(
+  "tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    color: text("color").notNull().default("#3b82f6"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_tags_account").on(table.accountId)],
+);
+
+export const contactTags = pgTable(
+  "contact_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_contact_tags_unique").on(table.contactId, table.tagId),
+    index("idx_contact_tags_tag").on(table.tagId),
+  ],
+);
+
+export const customFields = pgTable(
+  "custom_fields",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    fieldName: text("field_name").notNull(),
+    fieldType: text("field_type").notNull().default("text"),
+    fieldOptions: jsonb("field_options"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_custom_fields_account").on(table.accountId)],
+);
+
+export const contactCustomValues = pgTable(
+  "contact_custom_values",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    customFieldId: uuid("custom_field_id")
+      .notNull()
+      .references(() => customFields.id, { onDelete: "cascade" }),
+    value: text("value"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("idx_contact_custom_values_unique").on(table.contactId, table.customFieldId)],
+);
+
+export const contactNotes = pgTable(
+  "contact_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    noteText: text("note_text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_contact_notes_contact").on(table.contactId)],
+);
+
+// ------------------------------------------------------------
+// conversations — UNIQUE(account_id, contact_id) is the dedupe
+// guarantee (migration 036): one conversation per contact per
+// account.
+// ------------------------------------------------------------
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    status: conversationStatusEnum("status").notNull().default("open"),
+    assignedAgentId: uuid("assigned_agent_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    lastMessageText: text("last_message_text"),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    unreadCount: integer("unread_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_conversations_account").on(table.accountId),
+    uniqueIndex("idx_conversations_account_contact").on(table.accountId, table.contactId),
+  ],
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    senderType: senderTypeEnum("sender_type").notNull(),
+    senderId: uuid("sender_id"),
+    contentType: messageContentTypeEnum("content_type").notNull().default("text"),
+    contentText: text("content_text"),
+    mediaUrl: text("media_url"),
+    messageId: text("message_id"), // UAZAPI/WhatsApp message id, for status webhooks + dedupe
+    status: messageStatusEnum("status").notNull().default("sent"),
+    replyToMessageId: uuid("reply_to_message_id").references((): AnyPgColumn => messages.id, {
+      onDelete: "set null",
+    }),
+    interactivePayload: jsonb("interactive_payload"),
+    interactiveReplyId: text("interactive_reply_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_messages_conversation").on(table.conversationId),
+    index("idx_messages_message_id").on(table.messageId),
+    index("idx_messages_reply_to").on(table.replyToMessageId).where(sql`${table.replyToMessageId} is not null`),
+  ],
+);
+
+export const messageReactions = pgTable(
+  "message_reactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    actorType: reactionActorTypeEnum("actor_type").notNull(),
+    actorId: uuid("actor_id"),
+    emoji: text("emoji").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_message_reactions_unique").on(
+      table.messageId,
+      table.actorType,
+      table.actorId,
+    ),
+    index("idx_message_reactions_conversation").on(table.conversationId),
+  ],
+);
+
+export const quickReplies = pgTable(
+  "quick_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    kind: quickReplyKindEnum("kind").notNull().default("text"),
+    contentText: text("content_text"),
+    interactivePayload: jsonb("interactive_payload"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_quick_replies_account").on(table.accountId)],
+);
+
+// ------------------------------------------------------------
+// pipelines / deals
+// ------------------------------------------------------------
+export const pipelines = pgTable(
+  "pipelines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_pipelines_account").on(table.accountId)],
+);
+
+export const pipelineStages = pgTable(
+  "pipeline_stages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pipelineId: uuid("pipeline_id")
+      .notNull()
+      .references(() => pipelines.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    color: text("color").notNull().default("#3b82f6"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_pipeline_stages_pipeline").on(table.pipelineId)],
+);
+
+export const deals = pgTable(
+  "deals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    pipelineId: uuid("pipeline_id")
+      .notNull()
+      .references(() => pipelines.id, { onDelete: "cascade" }),
+    stageId: uuid("stage_id")
+      .notNull()
+      .references(() => pipelineStages.id),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    value: numeric("value", { precision: 12, scale: 2 }).notNull().default("0"),
+    currency: text("currency").default("USD"),
+    notes: text("notes"),
+    expectedCloseDate: date("expected_close_date"),
+    status: dealStatusEnum("status").notNull().default("active"),
+    assignedTo: uuid("assigned_to").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_deals_account").on(table.accountId),
+    index("idx_deals_pipeline").on(table.pipelineId),
+    index("idx_deals_stage").on(table.stageId),
+  ],
+);
+
+// ------------------------------------------------------------
+// broadcasts — no `template_name`/`template_language` (Meta-only
+// concepts, dropped); broadcasts now send plain text/media through
+// UAZAPI directly, no template approval step.
+// ------------------------------------------------------------
+export const broadcasts = pgTable(
+  "broadcasts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    contentText: text("content_text").notNull(),
+    mediaUrl: text("media_url"),
+    audienceFilter: jsonb("audience_filter"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    status: broadcastStatusEnum("status").notNull().default("draft"),
+    totalRecipients: integer("total_recipients").notNull().default(0),
+    sentCount: integer("sent_count").notNull().default(0),
+    deliveredCount: integer("delivered_count").notNull().default(0),
+    readCount: integer("read_count").notNull().default(0),
+    repliedCount: integer("replied_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_broadcasts_account").on(table.accountId)],
+);
+
+export const broadcastRecipients = pgTable(
+  "broadcast_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    broadcastId: uuid("broadcast_id")
+      .notNull()
+      .references(() => broadcasts.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    status: broadcastRecipientStatusEnum("status").notNull().default("pending"),
+    whatsappMessageId: text("whatsapp_message_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_broadcast_recipients_broadcast").on(table.broadcastId),
+    uniqueIndex("idx_broadcast_recipients_wamid")
+      .on(table.whatsappMessageId)
+      .where(sql`${table.whatsappMessageId} is not null`),
+  ],
+);
+
+// ------------------------------------------------------------
+// notifications — writes happen from application code (the
+// conversation-assign route), not a DB trigger, since the old
+// trigger's logic depended on auth.uid().
+// ------------------------------------------------------------
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: notificationTypeEnum("type").notNull().default("conversation_assigned"),
+    conversationId: uuid("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    body: text("body"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_notifications_user_created").on(table.userId, table.createdAt),
+    index("idx_notifications_user_unread")
+      .on(table.userId)
+      .where(sql`${table.readAt} is null`),
+  ],
+);
+
+// ------------------------------------------------------------
+// member_presence — heartbeat written by POST /api/presence/touch
+// (replaces the touch_presence() SECURITY DEFINER RPC), read via
+// polling (replaces the Realtime subscription).
+// ------------------------------------------------------------
+export const memberPresence = pgTable("member_presence", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  accountId: uuid("account_id")
+    .notNull()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  status: presenceStatusEnum("status").notNull().default("online"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+});
