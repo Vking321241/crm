@@ -209,8 +209,13 @@ export async function POST(request: Request) {
   }
 }
 
-/** True for a Postgres unique-constraint violation (SQLSTATE 23505). */
+/**
+ * True for a Postgres unique-constraint violation (SQLSTATE 23505).
+ * Drizzle wraps the raw pg error in a DrizzleQueryError whose `.code`
+ * is undefined — the real SQLSTATE is on `.cause.code`.
+ */
 function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  return (error as { code?: string }).code === "23505";
+  const err = error as { code?: string; cause?: { code?: string } };
+  return err.code === "23505" || err.cause?.code === "23505";
 }

@@ -93,10 +93,16 @@ export function isExactMatch(existing: ExistingContact, phone: string): boolean 
  * True for a Postgres unique-constraint violation (SQLSTATE 23505).
  * Used as the backstop when the DB unique index rejects a racing or
  * format-equal insert that slipped past the in-app check.
+ *
+ * Drizzle wraps the raw `pg` error in a `DrizzleQueryError` whose
+ * `.code` is undefined — the real SQLSTATE lives on `.cause.code`.
+ * Checking both keeps this working whether `error` is the raw pg
+ * error (e.g. from a plain `pg` client) or Drizzle's wrapper.
  */
 export function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  return (error as { code?: string }).code === "23505";
+  const err = error as { code?: string; cause?: { code?: string } };
+  return err.code === "23505" || err.cause?.code === "23505";
 }
 
 /**

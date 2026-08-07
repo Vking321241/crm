@@ -148,8 +148,8 @@ export async function POST(request: Request) {
   } catch (err) {
     // Unique violation on users.email — someone already claimed this
     // address between the token being issued and redeemed.
-    const pgErr = err as { code?: string };
-    if (pgErr?.code === "23505") {
+    const pgErr = err as { code?: string; cause?: { code?: string } };
+    if (pgErr?.code === "23505" || pgErr?.cause?.code === "23505") {
       return NextResponse.json(
         { error: "Já existe uma conta com este e-mail" },
         { status: 409 },

@@ -43,8 +43,8 @@ export async function PATCH(request: Request) {
 
       return NextResponse.json({ profile: updated });
     } catch (err) {
-      const pgErr = err as { code?: string };
-      if (pgErr?.code === "23505") {
+      const pgErr = err as { code?: string; cause?: { code?: string } };
+      if (pgErr?.code === "23505" || pgErr?.cause?.code === "23505") {
         return NextResponse.json({ error: "Já existe uma conta com este e-mail" }, { status: 409 });
       }
       throw err;

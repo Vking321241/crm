@@ -93,8 +93,8 @@ export async function POST(request: Request) {
         return account.id;
       });
     } catch (err) {
-      const pgErr = err as { code?: string };
-      if (pgErr?.code === "23505") {
+      const pgErr = err as { code?: string; cause?: { code?: string } };
+      if (pgErr?.code === "23505" || pgErr?.cause?.code === "23505") {
         return NextResponse.json(
           { error: "Já existe um usuário com este e-mail" },
           { status: 409 },
