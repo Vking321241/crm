@@ -428,7 +428,6 @@ export interface BroadcastRecipient {
   createdAt: string;
   /** Hydrated by GET /api/broadcasts/[id] (joined with contacts). */
   contact?: { name: string | null; phone: string | null };
-  contact?: Contact;
 }
 
 // ============================================================
