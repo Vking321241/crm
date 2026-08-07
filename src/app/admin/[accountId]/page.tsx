@@ -6,7 +6,8 @@ import { ArrowLeft } from "lucide-react";
 import { db } from "@/db/client";
 import { accounts, users } from "@/db/schema";
 import { ConnectInstanceCard } from "@/components/whatsapp/connect-instance-card";
-import { SeatsEditor } from "./seats-editor";
+import { ClientDetailsEditor } from "./seats-editor";
+import { DeleteClientButton } from "./delete-client-button";
 
 export default async function AdminClientDetailPage({
   params,
@@ -46,8 +47,14 @@ export default async function AdminClientDetailPage({
 
       <div className="grid gap-6 sm:grid-cols-2">
         <ConnectInstanceCard accountId={account.id} />
-        <SeatsEditor accountId={account.id} initialSeats={account.maxAgentSeats} />
+        <ClientDetailsEditor
+          accountId={account.id}
+          initialName={account.name}
+          initialSeats={account.maxAgentSeats}
+        />
       </div>
+
+      <DeleteClientButton accountId={account.id} clientName={account.name} />
     </div>
   );
 }
