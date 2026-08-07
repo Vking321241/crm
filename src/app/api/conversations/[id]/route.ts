@@ -65,7 +65,7 @@ export async function PATCH(
     }
 
     const body = (await request.json().catch(() => null)) as
-      | { status?: unknown; assigned_agent_id?: unknown }
+      | { status?: unknown; assigned_agent_id?: unknown; department_id?: unknown }
       | null;
     if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
@@ -79,6 +79,24 @@ export async function PATCH(
         );
       }
       update.status = body.status as (typeof VALID_STATUSES)[number];
+    }
+
+    // Transferring to a department releases the current assignment
+    // (unless the same request also sets assigned_agent_id) so the
+    // conversation lands in that department's shared queue rather
+    // than staying with whoever had it before.
+    if ("department_id" in body) {
+      const next = body.department_id;
+      if (next !== null && typeof next !== "string") {
+        return NextResponse.json(
+          { error: "department_id must be a string or null" },
+          { status: 400 },
+        );
+      }
+      update.departmentId = next;
+      if (!("assigned_agent_id" in body) && next !== existing.departmentId) {
+        update.assignedAgentId = null;
+      }
     }
 
     let assignmentChanged = false;

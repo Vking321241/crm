@@ -17,6 +17,7 @@ import {
   MessageSquare,
   ChevronDown,
   UserPlus,
+  Users2,
   Check,
   ArrowLeft,
   RefreshCw,
@@ -40,7 +41,6 @@ import {
   type SendMediaPayload,
 } from "./message-composer";
 import { deleteAccountMedia } from "@/lib/storage/upload-media";
-import { AiThreadBanner } from "./ai-thread-banner";
 import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
 
@@ -154,6 +154,23 @@ export function MessageThread({
         if (cancelled) return;
         const rows = (data.members ?? []) as { user_id: string; full_name: string }[];
         setMembers(rows.map((m) => ({ user_id: m.user_id, full_name: m.full_name })));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Departments for the transfer dropdown — same fetch-once-and-cache
+  // shape as teammates above.
+  const [departments, setDepartments] = useState<{ id: string; name: string; color: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/departments", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        setDepartments(data.departments ?? []);
       })
       .catch(() => {});
     return () => {
@@ -484,6 +501,29 @@ export function MessageThread({
     [conversation],
   );
 
+  // Transferring to a department releases the current assignment
+  // server-side (see PATCH /api/conversations/[id]) — mirror that
+  // locally so the header doesn't show a stale assignee.
+  const handleDepartmentChange = useCallback(
+    async (departmentId: string | null) => {
+      if (!conversation) return;
+      setConversation((prev) =>
+        prev ? { ...prev, department_id: departmentId, assigned_agent_id: undefined } : prev,
+      );
+      const res = await fetch(`/api/conversations/${conversation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ department_id: departmentId }),
+      });
+      if (!res.ok) {
+        toast.error("Falha ao transferir a conversa");
+      } else {
+        toast.success(departmentId ? "Conversa transferida" : "Conversa removida do setor");
+      }
+    },
+    [conversation],
+  );
+
   // Empty state — same doodle background as the active thread below, so
   // swapping between empty/selected doesn't change the pattern under the
   // user's eye.
@@ -659,6 +699,58 @@ export function MessageThread({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Transfer-to-department dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={cn(
+                "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                conversation.department_id ? "text-primary" : "text-muted-foreground",
+              )}
+            >
+              <Users2 className="h-3 w-3" />
+              <span className="hidden sm:inline">
+                {departments.find((d) => d.id === conversation.department_id)?.name ?? "Setor"}
+              </span>
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="border-border bg-popover">
+              {departments.length === 0 ? (
+                <DropdownMenuItem disabled className="text-sm text-muted-foreground">
+                  Nenhum setor criado
+                </DropdownMenuItem>
+              ) : (
+                departments.map((d) => {
+                  const isSelected = d.id === conversation.department_id;
+                  return (
+                    <DropdownMenuItem
+                      key={d.id}
+                      onClick={() => handleDepartmentChange(d.id)}
+                      className={cn("text-sm", isSelected ? "text-primary" : "text-popover-foreground")}
+                    >
+                      <span
+                        className="mr-2 inline-block size-2 rounded-full"
+                        style={{ backgroundColor: d.color }}
+                      />
+                      <span className="flex-1">{d.name}</span>
+                      {isSelected && <Check className="ml-2 h-3 w-3" />}
+                    </DropdownMenuItem>
+                  );
+                })
+              )}
+              {conversation.department_id && (
+                <>
+                  <DropdownMenuSeparator className="bg-border" />
+                  <DropdownMenuItem
+                    onClick={() => handleDepartmentChange(null)}
+                    className="text-sm text-muted-foreground"
+                  >
+                    Remover do setor
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -728,24 +820,6 @@ export function MessageThread({
           </div>
         )}
       </div>
-
-      {/* AI auto-reply banner — take over an active bot, or resume it
-          after a handoff. Renders nothing unless the account has
-          auto-reply configured. */}
-      <AiThreadBanner
-        conversationId={conversation.id}
-        disabled={conversation.ai_autoreply_disabled ?? false}
-        handoffSummary={conversation.ai_handoff_summary}
-        assignedAgentId={assignedAgentId}
-        currentUserId={user?.id}
-        onChange={(patch) => {
-          if ("assigned_agent_id" in patch) {
-            setConversation((prev) =>
-              prev ? { ...prev, assigned_agent_id: patch.assigned_agent_id ?? undefined } : prev,
-            );
-          }
-        }}
-      />
 
       {/* Composer */}
       <MessageComposer

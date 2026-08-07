@@ -163,6 +163,7 @@ export interface Conversation {
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  department_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

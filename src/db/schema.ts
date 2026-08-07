@@ -317,6 +317,27 @@ export const contacts = pgTable(
   ],
 );
 
+// ------------------------------------------------------------
+// departments — "setores" (e.g. Vendas, Suporte). Conversations can
+// be transferred between them; transferring clears the current
+// assignment so the conversation lands in the new department's
+// shared queue instead of staying with the previous agent (see the
+// PATCH /api/conversations/[id] handler).
+// ------------------------------------------------------------
+export const departments = pgTable(
+  "departments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color").notNull().default("#3b82f6"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_departments_account").on(table.accountId)],
+);
+
 export const tags = pgTable(
   "tags",
   {
@@ -419,6 +440,9 @@ export const conversations = pgTable(
     assignedAgentId: uuid("assigned_agent_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    departmentId: uuid("department_id").references(() => departments.id, {
+      onDelete: "set null",
+    }),
     lastMessageText: text("last_message_text"),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
     unreadCount: integer("unread_count").notNull().default(0),
@@ -433,6 +457,7 @@ export const conversations = pgTable(
   (table) => [
     index("idx_conversations_account").on(table.accountId),
     uniqueIndex("idx_conversations_account_contact").on(table.accountId, table.contactId),
+    index("idx_conversations_department").on(table.departmentId),
   ],
 );
 
@@ -559,7 +584,7 @@ export const deals = pgTable(
     }),
     title: text("title").notNull(),
     value: numeric("value", { precision: 12, scale: 2 }).notNull().default("0"),
-    currency: text("currency").default("USD"),
+    currency: text("currency").default("BRL"),
     notes: text("notes"),
     expectedCloseDate: date("expected_close_date"),
     status: dealStatusEnum("status").notNull().default("active"),

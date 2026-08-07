@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import {
   broadcasts,
@@ -7,6 +7,7 @@ import {
   deals,
   messages,
   pipelineStages,
+  users,
 } from "@/db/schema";
 import {
   daysAgoStart,
@@ -18,7 +19,10 @@ import {
 } from "./date-utils";
 import type {
   ActivityItem,
+  AgentStat,
+  ContactsGrowthPoint,
   ConversationsSeriesPoint,
+  ConversationStatusBreakdown,
   MetricsBundle,
   PipelineDonutData,
   PipelineStageSlice,
@@ -390,4 +394,98 @@ export async function loadActivity(db: Db, accountId: string, limit = 20): Promi
   }
 
   return items.sort((a, b) => (a.at > b.at ? -1 : a.at < b.at ? 1 : 0)).slice(0, limit);
+}
+
+// --- 6. Contacts growth (Estatísticas) ----------------------------------
+
+export async function loadContactsGrowth(
+  db: Db,
+  accountId: string,
+  rangeDays: number,
+): Promise<ContactsGrowthPoint[]> {
+  const start = daysAgoStart(rangeDays - 1);
+  const rows = await db
+    .select({ createdAt: contacts.createdAt })
+    .from(contacts)
+    .where(and(eq(contacts.accountId, accountId), gte(contacts.createdAt, start)));
+
+  const keys = lastNDayKeys(rangeDays);
+  const buckets = new Map<string, number>();
+  for (const k of keys) buckets.set(k, 0);
+  for (const row of rows) {
+    const key = localDayKey(row.createdAt.toISOString());
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+
+  return keys.map((day) => ({ day, count: buckets.get(day) ?? 0 }));
+}
+
+// --- 7. Conversation status breakdown + avg handling time --------------
+
+export async function loadConversationStatusBreakdown(
+  db: Db,
+  accountId: string,
+): Promise<ConversationStatusBreakdown> {
+  const rows = await db
+    .select({ status: conversations.status, count: sql<number>`count(*)::int` })
+    .from(conversations)
+    .where(eq(conversations.accountId, accountId))
+    .groupBy(conversations.status);
+
+  const byStatus = { open: 0, pending: 0, closed: 0 };
+  for (const r of rows) byStatus[r.status] = r.count;
+
+  // Proxy for "handling time": creation → last update, for
+  // conversations currently closed. There's no dedicated
+  // `closed_at` column, so this is an approximation that holds as
+  // long as closing a conversation is the last thing that touches it.
+  const closedRows = await db
+    .select({ createdAt: conversations.createdAt, updatedAt: conversations.updatedAt })
+    .from(conversations)
+    .where(and(eq(conversations.accountId, accountId), eq(conversations.status, "closed")));
+
+  const mins = closedRows
+    .map((r) => (r.updatedAt.getTime() - r.createdAt.getTime()) / 60_000)
+    .filter((m) => m >= 0);
+  const avgHandlingMinutes = mins.length ? mins.reduce((a, b) => a + b, 0) / mins.length : null;
+
+  return { ...byStatus, avgHandlingMinutes };
+}
+
+// --- 8. Per-agent breakdown ----------------------------------------------
+
+export async function loadAgentBreakdown(db: Db, accountId: string): Promise<AgentStat[]> {
+  const rows = await db
+    .select({
+      agentId: conversations.assignedAgentId,
+      status: conversations.status,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(conversations)
+    .where(and(eq(conversations.accountId, accountId), isNotNull(conversations.assignedAgentId)))
+    .groupBy(conversations.assignedAgentId, conversations.status);
+
+  const agentIds = [...new Set(rows.map((r) => r.agentId as string))];
+  const userRows = agentIds.length
+    ? await db.select({ id: users.id, fullName: users.fullName }).from(users).where(inArray(users.id, agentIds))
+    : [];
+  const nameById = new Map(userRows.map((u) => [u.id, u.fullName]));
+
+  const byAgent = new Map<string, { open: number; pending: number; closed: number }>();
+  for (const r of rows) {
+    const agentId = r.agentId as string;
+    const cur = byAgent.get(agentId) ?? { open: 0, pending: 0, closed: 0 };
+    cur[r.status] = r.count;
+    byAgent.set(agentId, cur);
+  }
+
+  return Array.from(byAgent.entries())
+    .map(([agentId, c]) => ({
+      agentId,
+      name: nameById.get(agentId) ?? "—",
+      openCount: c.open,
+      closedCount: c.closed,
+      totalCount: c.open + c.pending + c.closed,
+    }))
+    .sort((a, b) => b.totalCount - a.totalCount);
 }

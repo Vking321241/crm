@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
+import { Search, ChevronDown, X, UserCheck } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+interface DepartmentLite {
+  id: string;
+  name: string;
+  color: string;
+}
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -54,6 +60,18 @@ export function ConversationList({
   // dropped: it depended on a `/api/tags` endpoint that isn't part of
   // this fatia's scope.
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // "Minhas conversas" — only what's assigned to the acting agent, so
+  // an agent's own queue doesn't get lost in the account's full list.
+  const [mineOnly, setMineOnly] = useState(false);
+  const [departments, setDepartments] = useState<DepartmentLite[]>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/departments", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => setDepartments(data.departments ?? []))
+      .catch(() => {});
+  }, []);
 
   const fetchConversations = useCallback(async () => {
     const params = new URLSearchParams();
@@ -61,6 +79,8 @@ export function ConversationList({
       params.set("status", filter);
     }
     if (search.trim()) params.set("search", search.trim());
+    if (mineOnly) params.set("assignedToMe", "1");
+    if (selectedDepartment) params.set("departmentId", selectedDepartment);
     const qs = params.toString();
     const res = await fetch(`/api/conversations${qs ? `?${qs}` : ""}`, { cache: "no-store" });
     if (!res.ok) {
@@ -69,7 +89,7 @@ export function ConversationList({
     }
     const data = await res.json();
     return (data.conversations ?? []) as Conversation[];
-  }, [filter, search]);
+  }, [filter, search, mineOnly, selectedDepartment]);
 
   // Debounced fetch on filter/search change + poll loop. Search/filter
   // changes reset the poll timer so a fast typist doesn't stack requests.
@@ -178,6 +198,53 @@ export function ConversationList({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <button
+            type="button"
+            onClick={() => setMineOnly((v) => !v)}
+            aria-pressed={mineOnly}
+            className={cn(
+              "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+              mineOnly ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <UserCheck className="h-3 w-3" />
+            Minhas
+          </button>
+
+          {departments.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "inline-flex max-w-32 items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                  selectedDepartment ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <span className="truncate">
+                  {departments.find((d) => d.id === selectedDepartment)?.name ?? "Setor"}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-64 w-56 border-border bg-popover">
+                <DropdownMenuItem
+                  onClick={() => setSelectedDepartment(null)}
+                  className={cn("text-sm", selectedDepartment === null ? "text-primary" : "text-popover-foreground")}
+                >
+                  Todos os setores
+                </DropdownMenuItem>
+                {departments.map((d) => (
+                  <DropdownMenuItem
+                    key={d.id}
+                    onClick={() => setSelectedDepartment(d.id)}
+                    className={cn("text-sm", selectedDepartment === d.id ? "text-primary" : "text-popover-foreground")}
+                  >
+                    <span className="mr-2 inline-block size-2 rounded-full" style={{ backgroundColor: d.color }} />
+                    <span className="truncate">{d.name}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           {companies.length > 0 && (
             <DropdownMenu>

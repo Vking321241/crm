@@ -22,11 +22,21 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
     const search = searchParams.get("search")?.trim();
+    const departmentId = searchParams.get("departmentId");
+    const assignedToMe = searchParams.get("assignedToMe") === "1";
 
     const conditions = [eq(conversations.accountId, ctx.accountId)];
 
     if (status && (VALID_STATUSES as readonly string[]).includes(status)) {
       conditions.push(eq(conversations.status, status as (typeof VALID_STATUSES)[number]));
+    }
+
+    if (departmentId) {
+      conditions.push(eq(conversations.departmentId, departmentId));
+    }
+
+    if (assignedToMe) {
+      conditions.push(eq(conversations.assignedAgentId, ctx.userId));
     }
 
     if (search) {

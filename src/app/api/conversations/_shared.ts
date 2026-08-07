@@ -45,6 +45,7 @@ export function toApiConversation(
     contact_id: row.contactId,
     status: row.status,
     assigned_agent_id: row.assignedAgentId ?? undefined,
+    department_id: row.departmentId ?? undefined,
     last_message_text: row.lastMessageText ?? undefined,
     last_message_at: row.lastMessageAt ?? undefined,
     unread_count: row.unreadCount,

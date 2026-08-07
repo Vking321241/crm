@@ -65,3 +65,25 @@ export interface ActivityItem {
   /** Optional deep-link for the whole row (not all items have a target). */
   href?: string
 }
+
+export interface ContactsGrowthPoint {
+  day: string // YYYY-MM-DD local
+  count: number
+}
+
+export interface ConversationStatusBreakdown {
+  open: number
+  pending: number
+  closed: number
+  /** Avg time from a conversation's creation to its last update while
+   *  closed, in minutes. Null when there are no closed conversations. */
+  avgHandlingMinutes: number | null
+}
+
+export interface AgentStat {
+  agentId: string
+  name: string
+  openCount: number
+  closedCount: number
+  totalCount: number
+}

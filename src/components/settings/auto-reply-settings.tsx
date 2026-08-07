@@ -146,7 +146,7 @@ export function AutoReplySettings() {
   return (
     <div>
       <SettingsPanelHead
-        title="Respostas automáticas"
+        title="Mensagens automáticas"
         description="Mensagens enviadas automaticamente pelo WhatsApp, sem IA — baseadas em regras simples."
       />
 
