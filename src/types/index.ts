@@ -381,47 +381,53 @@ export interface Deal {
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
 export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
 
+/**
+ * Fatia 3: no more `template_name`/`template_language`/
+ * `template_variables` — those were Meta Cloud API-only concepts and
+ * the product now sends plain text/media straight through UAZAPI (see
+ * src/lib/whatsapp/uazapi-client.ts, no template approval step).
+ * Field names are camelCase to match the Drizzle row shape returned
+ * by /api/broadcasts/* (see src/db/schema.ts `broadcasts`).
+ */
 export interface Broadcast {
   id: string;
-  user_id: string;
+  accountId: string;
+  userId: string | null;
   name: string;
-  template_name: string;
-  template_language: string;
-  template_variables?: Record<string, unknown>;
-  audience_filter?: Record<string, unknown>;
-  scheduled_at?: string;
+  contentText: string;
+  mediaUrl: string | null;
+  /** `{ tagIds?: string[] }` — empty/absent tagIds means "all contacts". */
+  audienceFilter?: { tagIds?: string[] } | null;
+  scheduledAt?: string | null;
   status: BroadcastStatus;
-  total_recipients: number;
-  sent_count: number;
-  delivered_count: number;
-  read_count: number;
-  replied_count: number;
-  failed_count: number;
-  created_at: string;
+  totalRecipients: number;
+  sentCount: number;
+  deliveredCount: number;
+  readCount: number;
+  repliedCount: number;
+  failedCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface BroadcastRecipient {
   id: string;
-  broadcast_id: string;
-  /**
-   * Nullable after migration 004 — becomes NULL when the referenced
-   * contact is deleted (ON DELETE SET NULL). History preserved; the
-   * UI renders "Unknown" for orphaned rows.
-   */
-  contact_id: string | null;
+  broadcastId: string;
+  contactId: string;
   status: RecipientStatus;
-  sent_at?: string;
-  delivered_at?: string;
-  read_at?: string;
-  replied_at?: string;
-  error_message?: string;
+  sentAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  repliedAt?: string | null;
+  errorMessage?: string | null;
   /**
-   * Meta's message id, persisted when the broadcast send succeeds so
-   * the webhook can mirror status updates back onto the recipient row.
-   * Added in migration 003.
+   * UAZAPI's message id, persisted when the send succeeds so a future
+   * status webhook can mirror delivered/read back onto this row.
    */
-  whatsapp_message_id?: string;
-  created_at: string;
+  whatsappMessageId?: string | null;
+  createdAt: string;
+  /** Hydrated by GET /api/broadcasts/[id] (joined with contacts). */
+  contact?: { name: string | null; phone: string | null };
   contact?: Contact;
 }
 

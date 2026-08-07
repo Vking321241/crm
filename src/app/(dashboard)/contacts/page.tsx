@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -57,31 +55,26 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import type { Contact, Tag } from '@/components/contacts/types';
 
 const PAGE_SIZE = 25;
 
-interface ContactWithTags extends Contact {
-  tags?: Tag[];
-}
-
 export default function ContactsPage() {
   const t = useTranslations('Contacts.page');
-  const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
 
-  const [contacts, setContacts] = useState<ContactWithTags[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
-  // Tag filter — contacts shown must have ANY of these tags (OR).
+  // Tag filter — a contact must carry EVERY selected tag (AND).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
-  const [editContactTags, setEditContactTags] = useState<ContactTag[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailContactId, setDetailContactId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -94,148 +87,69 @@ export default function ContactsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
-  // All tags for display
-  const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
+  // All tags for display / filtering
+  const [allTags, setAllTags] = useState<Tag[]>([]);
 
-  // Guards against out-of-order fetch responses: each fetchContacts run
-  // claims a sequence number and only the latest is allowed to commit its
-  // results. Without this, rapidly toggling tag filters could let a slower
-  // earlier request resolve last and render stale rows.
+  // Guards against out-of-order fetch responses.
   const fetchSeq = useRef(0);
 
   const fetchTags = useCallback(async () => {
-    const { data } = await supabase.from('tags').select('*');
-    if (data) {
-      const map: Record<string, Tag> = {};
-      data.forEach((t) => (map[t.id] = t));
-      setTagsMap(map);
-      // Drop any filter selections whose tag no longer exists (e.g. a tag
-      // deleted elsewhere) so it can't linger invisibly in the query.
-      setSelectedTagIds((prev) => {
-        const pruned = prev.filter((id) => map[id]);
-        return pruned.length === prev.length ? prev : pruned;
-      });
-    }
-  }, [supabase]);
+    const res = await fetch('/api/tags');
+    if (!res.ok) return;
+    const data = (await res.json()) as { tags: Tag[] };
+    setAllTags(data.tags ?? []);
+    setSelectedTagIds((prev) => {
+      const ids = new Set(data.tags.map((tg) => tg.id));
+      const pruned = prev.filter((id) => ids.has(id));
+      return pruned.length === prev.length ? prev : pruned;
+    });
+  }, []);
 
   const fetchContacts = useCallback(async () => {
     const seq = ++fetchSeq.current;
     setLoading(true);
-    // The visible rows are about to change — drop any selection that
-    // referred to the old page/search results so the bulk bar can't
-    // act on rows the user can no longer see.
     setSelected(new Set());
 
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
+    const params = new URLSearchParams();
     const term = search.trim();
+    if (term) params.set('search', term);
+    for (const id of selectedTagIds) params.append('tagId', id);
+    params.set('page', String(page));
+    params.set('pageSize', String(PAGE_SIZE));
 
-    let contactRows: Contact[];
-    let count: number;
-
-    if (selectedTagIds.length > 0) {
-      // Tag filter active — resolve it server-side (join + distinct +
-      // windowed total count + pagination) so a tag covering many
-      // contacts can't silently truncate the result or overflow an IN
-      // clause. See migration 025_filter_contacts_by_tags.
-      const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
-        p_tag_ids: selectedTagIds,
-        p_search: term || null,
-        p_limit: PAGE_SIZE,
-        p_offset: from,
-      });
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
+    try {
+      const res = await fetch(`/api/contacts?${params.toString()}`);
+      if (seq !== fetchSeq.current) return;
+      if (!res.ok) {
         toast.error(t('toastFailedLoad'));
         setLoading(false);
         return;
       }
-      const rows = (data ?? []) as { contact: Contact; total_count: number }[];
-      contactRows = rows.map((r) => r.contact);
-      count = rows.length > 0 ? Number(rows[0].total_count) : 0;
-    } else {
-      let query = supabase
-        .from('contacts')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (term) {
-        const like = `%${term}%`;
-        query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
-      }
-
-      const { data, count: exactCount, error } = await query;
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-      contactRows = data ?? [];
-      count = exactCount ?? 0;
+      const data = (await res.json()) as { contacts: Contact[]; total: number };
+      setContacts(data.contacts ?? []);
+      setTotalCount(data.total ?? 0);
+    } catch {
+      if (seq === fetchSeq.current) toast.error(t('toastFailedLoad'));
+    } finally {
+      if (seq === fetchSeq.current) setLoading(false);
     }
+  }, [page, search, selectedTagIds, t]);
 
-    setTotalCount(count);
-
-    if (contactRows.length === 0) {
-      setContacts([]);
-      setLoading(false);
-      return;
-    }
-
-    // Fetch tags for these contacts
-    const contactIds = contactRows.map((c) => c.id);
-    const { data: contactTags } = await supabase
-      .from('contact_tags')
-      .select('contact_id, tag_id')
-      .in('contact_id', contactIds);
-    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-
-    const tagsByContact: Record<string, string[]> = {};
-    contactTags?.forEach((ct) => {
-      if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
-      tagsByContact[ct.contact_id].push(ct.tag_id);
-    });
-
-    const enriched: ContactWithTags[] = contactRows.map((c) => ({
-      ...c,
-      tags: (tagsByContact[c.id] ?? [])
-        .map((tid) => tagsMap[tid])
-        .filter(Boolean),
-    }));
-
-    setContacts(enriched);
-    setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
-
-  // Load-once-on-mount-ish data fetches. Each setter inside runs
-  // inside an async promise completion (Supabase await), not
-  // synchronously in the effect body, so the cascade the lint rule
-  // warns about doesn't apply here.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTags();
   }, [fetchTags]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
   }, [fetchContacts]);
 
   function openAddForm() {
     setEditContact(null);
-    setEditContactTags([]);
     setFormOpen(true);
   }
 
-  async function openEditForm(contact: Contact) {
-    const { data } = await supabase
-      .from('contact_tags')
-      .select('*')
-      .eq('contact_id', contact.id);
+  function openEditForm(contact: Contact) {
     setEditContact(contact);
-    setEditContactTags(data ?? []);
     setFormOpen(true);
   }
 
@@ -253,12 +167,9 @@ export default function ContactsPage() {
     if (!deleteTarget) return;
     setDeleting(true);
 
-    const { error } = await supabase
-      .from('contacts')
-      .delete()
-      .eq('id', deleteTarget.id);
+    const res = await fetch(`/api/contacts/${deleteTarget.id}`, { method: 'DELETE' });
 
-    if (error) {
+    if (!res.ok) {
       toast.error(t('toastFailedDelete'));
     } else {
       toast.success(t('toastDeleted'));
@@ -300,12 +211,15 @@ export default function ContactsPage() {
     if (ids.length === 0) return;
     setDeleting(true);
 
-    const { error } = await supabase.from('contacts').delete().in('id', ids);
+    const results = await Promise.all(
+      ids.map((id) => fetch(`/api/contacts/${id}`, { method: 'DELETE' })),
+    );
+    const failedCount = results.filter((r) => !r.ok).length;
 
-    if (error) {
+    if (failedCount === ids.length) {
       toast.error(t('toastBulkFailedDelete'));
     } else {
-      toast.success(t('toastBulkDeleted', { count: ids.length }));
+      toast.success(t('toastBulkDeleted', { count: ids.length - failedCount }));
       setSelected(new Set());
       fetchContacts();
     }
@@ -318,11 +232,6 @@ export default function ContactsPage() {
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
-  // Tag filter helpers. Every change resets to page 0 — the result set
-  // shrinks/grows so page N may no longer be valid (mirrors the search box).
-  const allTags = Object.values(tagsMap).sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
   const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0;
 
   function toggleTagFilter(tagId: string) {
@@ -338,6 +247,9 @@ export default function ContactsPage() {
     setSelectedTagIds([]);
     setPage(0);
   }
+
+  const tagsMap: Record<string, Tag> = {};
+  for (const tag of allTags) tagsMap[tag.id] = tag;
 
   return (
     <div className="space-y-6">
@@ -391,8 +303,6 @@ export default function ContactsPage() {
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
-                // Reset pagination when the query changes — the result
-                // set shrinks/grows, page N may no longer be valid.
                 setPage(0);
               }}
               placeholder={t('searchPlaceholder')}
@@ -638,7 +548,7 @@ export default function ContactsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
-                    {new Date(contact.created_at).toLocaleDateString('en-US', {
+                    {new Date(contact.createdAt).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
@@ -734,14 +644,9 @@ export default function ContactsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         contact={editContact}
-        contactTags={editContactTags}
         onSaved={() => {
           fetchContacts();
           fetchTags();
-        }}
-        onViewExisting={(id) => {
-          setFormOpen(false);
-          openDetail(id);
         }}
       />
 

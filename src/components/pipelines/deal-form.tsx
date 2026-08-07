@@ -1,18 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { CURRENCIES } from "@/lib/currency";
 import type {
-  Contact,
-  Conversation,
+  AccountMember,
   Deal,
   DealStatus,
   PipelineStage,
-  Profile,
 } from "@/types";
+import { legacyStatusToApi } from "@/lib/pipelines/status";
 import {
   Sheet,
   SheetContent,
@@ -34,6 +32,12 @@ import {
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
+interface ContactOption {
+  id: string;
+  name: string | null;
+  phone: string;
+}
+
 interface DealFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -42,6 +46,15 @@ interface DealFormProps {
   stages: PipelineStage[];
   defaultStageId?: string;
   onSaved: () => void;
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error || `Request failed (${res.status})`);
+  }
+  return res.json();
 }
 
 export function DealForm({
@@ -54,22 +67,21 @@ export function DealForm({
   onSaved,
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
-  const supabase = createClient();
-  const { accountId, defaultCurrency } = useAuth();
+  const { defaultCurrency } = useAuth();
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
   const [contactId, setContactId] = useState("");
+  const [contactQuery, setContactQuery] = useState("");
   const [stageId, setStageId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [linkedConversation, setLinkedConversation] =
-    useState<Conversation | null>(null);
+  const [contacts, setContacts] = useState<ContactOption[]>([]);
+  const [members, setMembers] = useState<AccountMember[]>([]);
+  const [linkedConversationId, setLinkedConversationId] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [statusAction, setStatusAction] = useState<DealStatus | null>(null);
@@ -88,8 +100,9 @@ export function DealForm({
       setValue(String(deal.value ?? ""));
       setCurrency(deal.currency || defaultCurrency);
       // contact_id is nullable when the contact has been deleted
-      // (migration 004: ON DELETE SET NULL). "" means "no selection".
+      // (ON DELETE SET NULL). "" means "no selection".
       setContactId(deal.contact_id ?? "");
+      setContactQuery(deal.contact?.name || deal.contact?.phone || "");
       setStageId(deal.stage_id);
       setAssignedTo(deal.assigned_to ?? "");
       setExpectedCloseDate(deal.expected_close_date ?? "");
@@ -99,6 +112,7 @@ export function DealForm({
       setValue("");
       setCurrency(defaultCurrency);
       setContactId("");
+      setContactQuery("");
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
       setExpectedCloseDate("");
@@ -107,49 +121,75 @@ export function DealForm({
   }, [open, deal, defaultStageId, stages, defaultCurrency]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Load supporting data once the sheet is open
+  // Load account members (for "assigned to") once the sheet opens.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const [c, p] = await Promise.all([
-        supabase.from("contacts").select("*").order("name"),
-        supabase.from("profiles").select("*").order("full_name"),
-      ]);
-      if (cancelled) return;
-      setContacts((c.data ?? []) as Contact[]);
-      setProfiles((p.data ?? []) as Profile[]);
+      try {
+        const { members: rows } = await fetchJson<{ members: AccountMember[] }>(
+          "/api/account/members",
+        );
+        if (!cancelled) setMembers(rows);
+      } catch (err) {
+        console.error("Failed to load members:", err);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, supabase]);
+  }, [open]);
 
-  // Fetch linked conversation for the selected contact (newest open one).
-  // Clearing on no-selection is sync with prop state; the populated
-  // case runs setLinkedConversation inside the async fetch callback.
+  // Debounced contact search-as-you-type against /api/contacts.
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    // Selecting a contact fills contactQuery with its label; skip
+    // re-searching that exact keystroke burst.
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ pageSize: "20" });
+        if (contactQuery.trim()) params.set("search", contactQuery.trim());
+        const { contacts: rows } = await fetchJson<{ contacts: ContactOption[] }>(
+          `/api/contacts?${params.toString()}`,
+        );
+        setContacts(rows);
+      } catch (err) {
+        console.error("Failed to search contacts:", err);
+      }
+    }, 250);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [open, contactQuery]);
+
+  // Fetch the newest open conversation for the selected contact, so
+  // the "go to conversation" link can appear. Falls back to nothing
+  // if the lookup fails — this is a convenience link, not required
+  // data for saving the deal.
   useEffect(() => {
     if (!open || !contactId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLinkedConversation(null);
+      setLinkedConversationId(null);
       return;
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("contact_id", contactId)
-        .order("last_message_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (cancelled) return;
-      setLinkedConversation((data as Conversation | null) ?? null);
+      try {
+        const { deals: relatedDeals } = await fetchJson<{ deals: { conversationId: string | null }[] }>(
+          `/api/deals?contactId=${encodeURIComponent(contactId)}`,
+        );
+        const withConversation = relatedDeals.find((d) => d.conversationId);
+        if (!cancelled) setLinkedConversationId(withConversation?.conversationId ?? null);
+      } catch {
+        if (!cancelled) setLinkedConversationId(null);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, contactId, supabase]);
+  }, [open, contactId]);
 
   async function handleSave() {
     if (!title.trim() || !contactId || !stageId) {
@@ -162,47 +202,32 @@ export function DealForm({
       title: title.trim(),
       value: parseFloat(value) || 0,
       currency,
-      contact_id: contactId,
-      pipeline_id: pipelineId,
-      stage_id: stageId,
-      assigned_to: assignedTo || null,
-      notes: notes.trim() || null,
-      expected_close_date: expectedCloseDate || null,
+      contactId,
+      pipelineId,
+      stageId,
+      assignedTo: assignedTo || "",
+      notes: notes.trim(),
+      expectedCloseDate: expectedCloseDate || "",
     };
 
-    if (deal) {
-      const { error } = await supabase
-        .from("deals")
-        .update(payload)
-        .eq("id", deal.id);
-      if (error) {
-        toast.error(t("toastFailedSave"));
-        setSaving(false);
-        return;
+    try {
+      if (deal) {
+        await fetchJson(`/api/deals/${deal.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson("/api/deals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
       }
-    } else {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) {
-        toast.error(t("toastNotSignedIn"));
-        setSaving(false);
-        return;
-      }
-      if (!accountId) {
-        toast.error(t("toastNotLinked"));
-        setSaving(false);
-        return;
-      }
-      const { error } = await supabase
-        .from("deals")
-        .insert({ ...payload, user_id: user.id, account_id: accountId, status: "open" });
-      if (error) {
-        toast.error(t("toastFailedCreate"));
-        setSaving(false);
-        return;
-      }
+    } catch {
+      toast.error(deal ? t("toastFailedSave") : t("toastFailedCreate"));
+      setSaving(false);
+      return;
     }
 
     setSaving(false);
@@ -214,15 +239,18 @@ export function DealForm({
   async function handleStatusChange(status: DealStatus) {
     if (!deal) return;
     setStatusAction(status);
-    const { error } = await supabase
-      .from("deals")
-      .update({ status })
-      .eq("id", deal.id);
-    setStatusAction(null);
-    if (error) {
+    try {
+      await fetchJson(`/api/deals/${deal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: legacyStatusToApi(status) }),
+      });
+    } catch {
+      setStatusAction(null);
       toast.error(t("toastFailedStatus"));
       return;
     }
+    setStatusAction(null);
     toast.success(
       status === "won" ? t("toastMarkedWon") : status === "lost" ? t("toastMarkedLost") : t("toastReopened"),
     );
@@ -233,12 +261,14 @@ export function DealForm({
   async function handleDelete() {
     if (!deal) return;
     setDeleting(true);
-    const { error } = await supabase.from("deals").delete().eq("id", deal.id);
-    setDeleting(false);
-    if (error) {
+    try {
+      await fetchJson(`/api/deals/${deal.id}`, { method: "DELETE" });
+    } catch {
+      setDeleting(false);
       toast.error(t("toastFailedDelete"));
       return;
     }
+    setDeleting(false);
     toast.success(t("toastDeleted"));
     setConfirmDelete(false);
     onOpenChange(false);
@@ -271,20 +301,40 @@ export function DealForm({
 
             <div className="grid gap-2">
               <Label className="text-muted-foreground">{t("contact")}</Label>
-              <select
-                value={contactId}
-                onChange={(e) => setContactId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="">{t("selectContact")}</option>
+              <Input
+                value={contactQuery}
+                onChange={(e) => {
+                  setContactQuery(e.target.value);
+                  setContactId("");
+                }}
+                placeholder={t("selectContact")}
+                className="border-border bg-muted text-foreground"
+                list="deal-form-contacts"
+              />
+              <datalist id="deal-form-contacts">
                 {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name || c.phone}
-                  </option>
+                  <option key={c.id} value={c.name || c.phone} />
                 ))}
-              </select>
+              </datalist>
+              {!contactId && contactQuery.trim() && contacts.length > 0 && (
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-muted">
+                  {contacts.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setContactId(c.id);
+                        setContactQuery(c.name || c.phone);
+                      }}
+                      className="block w-full px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-primary/10"
+                    >
+                      {c.name || c.phone}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {linkedConversation && (
+              {linkedConversationId && (
                 <Link
                   href="/inbox"
                   className="mt-1 inline-flex items-center gap-1.5 self-start rounded-md bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
@@ -358,9 +408,9 @@ export function DealForm({
                 className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
               >
                 <option value="">{t("unassigned")}</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name || p.email}
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.full_name || m.email}
                   </option>
                 ))}
               </select>

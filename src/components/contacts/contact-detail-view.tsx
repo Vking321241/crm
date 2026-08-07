@@ -1,15 +1,17 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
-import {
-  TemplatePicker,
-  type TemplateSendValues,
-} from '@/components/inbox/template-picker';
+import type {
+  Contact,
+  Tag,
+  ContactNote,
+  CustomField,
+  ContactCustomValue,
+  Deal,
+} from '@/components/contacts/types';
 import {
   Sheet,
   SheetContent,
@@ -23,7 +25,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Phone,
@@ -35,9 +36,7 @@ import {
   Plus,
   Trash2,
   Save,
-  X,
   DollarSign,
-  LayoutTemplate,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -55,18 +54,11 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
-  const supabase = createClient();
-  const { accountId, defaultCurrency } = useAuth();
+  const { defaultCurrency } = useAuth();
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
-
-  // Send template — lets the business initiate (or re-open) a conversation
-  // with this contact by sending an approved template. The send route
-  // find-or-creates the conversation, so no inbound message is required.
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [sendingTemplate, setSendingTemplate] = useState(false);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -78,7 +70,7 @@ export function ContactDetailView({
   // Tags tab
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [contactTagIds, setContactTagIds] = useState<string[]>([]);
-  const [savingTags, setSavingTags] = useState(false);
+  const [savingTagId, setSavingTagId] = useState<string | null>(null);
 
   // Notes tab
   const [notes, setNotes] = useState<ContactNote[]>([]);
@@ -92,102 +84,92 @@ export function ContactDetailView({
   const [savingCustom, setSavingCustom] = useState(false);
   const [loadingCustom, setLoadingCustom] = useState(false);
 
-  // Deals tab
+  // Deals tab — the pipeline area is owned by another workstream; we
+  // only ever GET here, never write.
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
 
-  const fetchContact = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     if (!contactId) return;
     setLoading(true);
-
-    const { data } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('id', contactId)
-      .single();
-
-    if (data) {
-      setContact(data);
-      setEditName(data.name ?? '');
-      setEditPhone(data.phone);
-      setEditEmail(data.email ?? '');
-      setEditCompany(data.company ?? '');
-    }
-    setLoading(false);
-  }, [contactId, supabase]);
-
-  const fetchTags = useCallback(async () => {
-    if (!contactId) return;
-
-    const [tagsRes, contactTagsRes] = await Promise.all([
-      supabase.from('tags').select('*').order('name'),
-      supabase.from('contact_tags').select('tag_id').eq('contact_id', contactId),
-    ]);
-
-    if (tagsRes.data) setAllTags(tagsRes.data);
-    if (contactTagsRes.data) {
-      setContactTagIds(contactTagsRes.data.map((ct) => ct.tag_id));
-    }
-  }, [contactId, supabase]);
-
-  const fetchNotes = useCallback(async () => {
-    if (!contactId) return;
     setLoadingNotes(true);
-
-    const { data } = await supabase
-      .from('contact_notes')
-      .select('*')
-      .eq('contact_id', contactId)
-      .order('created_at', { ascending: false });
-
-    if (data) setNotes(data);
-    setLoadingNotes(false);
-  }, [contactId, supabase]);
-
-  const fetchCustomFields = useCallback(async () => {
-    if (!contactId) return;
     setLoadingCustom(true);
 
-    const [fieldsRes, valuesRes] = await Promise.all([
-      supabase.from('custom_fields').select('*').order('field_name'),
-      supabase
-        .from('contact_custom_values')
-        .select('*')
-        .eq('contact_id', contactId),
-    ]);
+    try {
+      const res = await fetch(`/api/contacts/${contactId}`);
+      if (!res.ok) {
+        toast.error(t('toastFailedLoad', { fallback: 'Failed to load contact' }));
+        return;
+      }
+      const data = (await res.json()) as {
+        contact: Contact;
+        tags: Tag[];
+        customValues: ContactCustomValue[];
+        notes: ContactNote[];
+      };
 
-    if (fieldsRes.data) setCustomFields(fieldsRes.data);
-    if (valuesRes.data) {
-      const map: Record<string, string> = {};
-      valuesRes.data.forEach((v) => {
-        map[v.custom_field_id] = v.value ?? '';
-      });
-      setCustomValues(map);
+      setContact(data.contact);
+      setEditName(data.contact.name ?? '');
+      setEditPhone(data.contact.phone);
+      setEditEmail(data.contact.email ?? '');
+      setEditCompany(data.contact.company ?? '');
+
+      setContactTagIds(data.tags.map((tg) => tg.id));
+
+      const valueMap: Record<string, string> = {};
+      for (const v of data.customValues) valueMap[v.customFieldId] = v.value ?? '';
+      setCustomValues(valueMap);
+
+      setNotes(data.notes);
+    } finally {
+      setLoading(false);
+      setLoadingNotes(false);
+      setLoadingCustom(false);
     }
-    setLoadingCustom(false);
-  }, [contactId, supabase]);
+  }, [contactId, t]);
+
+  const fetchTags = useCallback(async () => {
+    const res = await fetch('/api/tags');
+    if (res.ok) {
+      const data = (await res.json()) as { tags: Tag[] };
+      setAllTags(data.tags ?? []);
+    }
+  }, []);
+
+  const fetchCustomFieldDefs = useCallback(async () => {
+    const res = await fetch('/api/custom-fields');
+    if (res.ok) {
+      const data = (await res.json()) as { customFields: CustomField[] };
+      setCustomFields(data.customFields ?? []);
+    }
+  }, []);
 
   const fetchDeals = useCallback(async () => {
     if (!contactId) return;
     setLoadingDeals(true);
-    const { data } = await supabase
-      .from('deals')
-      .select('*, stage:pipeline_stages(*)')
-      .eq('contact_id', contactId)
-      .order('created_at', { ascending: false });
-    setDeals((data ?? []) as Deal[]);
-    setLoadingDeals(false);
-  }, [contactId, supabase]);
+    try {
+      const res = await fetch(`/api/deals?contactId=${contactId}`);
+      if (res.ok) {
+        const data = (await res.json()) as { deals: Deal[] };
+        setDeals(data.deals ?? []);
+      } else {
+        setDeals([]);
+      }
+    } catch {
+      setDeals([]);
+    } finally {
+      setLoadingDeals(false);
+    }
+  }, [contactId]);
 
   useEffect(() => {
     if (open && contactId) {
-      fetchContact();
+      fetchAll();
       fetchTags();
-      fetchNotes();
-      fetchCustomFields();
+      fetchCustomFieldDefs();
       fetchDeals();
     }
-  }, [open, contactId, fetchContact, fetchTags, fetchNotes, fetchCustomFields, fetchDeals]);
+  }, [open, contactId, fetchAll, fetchTags, fetchCustomFieldDefs, fetchDeals]);
 
   async function copyPhone() {
     if (!contact) return;
@@ -203,22 +185,23 @@ export function ContactDetailView({
     }
 
     setSavingDetails(true);
-    const { error } = await supabase
-      .from('contacts')
-      .update({
-        name: editName.trim() || null,
+    const res = await fetch(`/api/contacts/${contactId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: editName.trim(),
         phone: editPhone.trim(),
-        email: editEmail.trim() || null,
-        company: editCompany.trim() || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', contactId);
+        email: editEmail.trim(),
+        company: editCompany.trim(),
+      }),
+    });
 
-    if (error) {
-      toast.error(t('toastUpdateFailed'));
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast.error(body?.error || t('toastUpdateFailed'));
     } else {
       toast.success(t('toastUpdated'));
-      fetchContact();
+      fetchAll();
       onUpdated();
     }
     setSavingDetails(false);
@@ -226,70 +209,57 @@ export function ContactDetailView({
 
   async function toggleTag(tagId: string) {
     if (!contactId) return;
-    setSavingTags(true);
+    setSavingTagId(tagId);
 
     const isSelected = contactTagIds.includes(tagId);
 
-    if (isSelected) {
-      const { error } = await supabase
-        .from('contact_tags')
-        .delete()
-        .eq('contact_id', contactId)
-        .eq('tag_id', tagId);
-      if (!error) {
-        setContactTagIds((prev) => prev.filter((id) => id !== tagId));
-        onUpdated();
-      }
+    const res = isSelected
+      ? await fetch(`/api/contacts/${contactId}/tags/${tagId}`, { method: 'DELETE' })
+      : await fetch(`/api/contacts/${contactId}/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tagId }),
+        });
+
+    if (res.ok) {
+      setContactTagIds((prev) =>
+        isSelected ? prev.filter((id) => id !== tagId) : [...prev, tagId],
+      );
+      onUpdated();
     } else {
-      const { error } = await supabase
-        .from('contact_tags')
-        .insert({ contact_id: contactId, tag_id: tagId });
-      if (!error) {
-        setContactTagIds((prev) => [...prev, tagId]);
-        onUpdated();
-      }
+      toast.error(t('toastUpdateFailed'));
     }
-    setSavingTags(false);
+    setSavingTagId(null);
   }
 
   async function addNote() {
     if (!contactId || !newNote.trim()) return;
     setSavingNote(true);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user;
-    if (!user || !accountId) {
-      toast.error(t('toastNotAuthenticated'));
-      setSavingNote(false);
-      return;
-    }
-
-    const { error } = await supabase.from('contact_notes').insert({
-      contact_id: contactId,
-      account_id: accountId,
-      user_id: user.id,
-      note_text: newNote.trim(),
+    const res = await fetch(`/api/contacts/${contactId}/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ noteText: newNote.trim() }),
     });
 
-    if (error) {
+    if (!res.ok) {
       toast.error(t('toastNoteAddFailed'));
     } else {
       setNewNote('');
-      fetchNotes();
+      const data = (await res.json()) as { note: ContactNote };
+      setNotes((prev) => [data.note, ...prev]);
       toast.success(t('toastNoteAdded'));
     }
     setSavingNote(false);
   }
 
   async function deleteNote(noteId: string) {
-    const { error } = await supabase
-      .from('contact_notes')
-      .delete()
-      .eq('id', noteId);
+    if (!contactId) return;
+    const res = await fetch(`/api/contacts/${contactId}/notes/${noteId}`, {
+      method: 'DELETE',
+    });
 
-    if (error) {
+    if (!res.ok) {
       toast.error(t('toastNoteDeleteFailed'));
     } else {
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
@@ -302,74 +272,23 @@ export function ContactDetailView({
     setSavingCustom(true);
 
     try {
-      // Delete existing values and re-insert
-      await supabase
-        .from('contact_custom_values')
-        .delete()
-        .eq('contact_id', contactId);
+      const values = Object.entries(customValues).map(([customFieldId, value]) => ({
+        customFieldId,
+        value,
+      }));
 
-      const rows = Object.entries(customValues)
-        .filter(([, val]) => val.trim())
-        .map(([fieldId, val]) => ({
-          contact_id: contactId,
-          custom_field_id: fieldId,
-          value: val.trim(),
-        }));
-
-      if (rows.length > 0) {
-        const { error } = await supabase
-          .from('contact_custom_values')
-          .insert(rows);
-        if (error) throw error;
-      }
+      const res = await fetch(`/api/contacts/${contactId}/custom-values`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values }),
+      });
+      if (!res.ok) throw new Error();
 
       toast.success(t('toastCustomFieldsSaved'));
     } catch {
       toast.error(t('toastCustomFieldsFailed'));
     }
     setSavingCustom(false);
-  }
-
-  async function handleSendTemplate(
-    template: MessageTemplate,
-    values: TemplateSendValues,
-  ) {
-    if (!contactId) return;
-    setSendingTemplate(true);
-    try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // No conversation_id — the route find-or-creates one for this
-          // contact, mirroring the inbox template-send payload otherwise.
-          contact_id: contactId,
-          message_type: 'template',
-          template_name: template.name,
-          template_language: template.language,
-          template_message_params: {
-            body: values.body,
-            headerText: values.headerText,
-            buttonParams: values.buttonParams,
-          },
-          template_params: values.body,
-        }),
-      });
-
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const reason = payload?.error || `HTTP ${res.status}`;
-        toast.error(t('toastTemplateFailed', { reason }));
-        return;
-      }
-
-      toast.success(t('toastTemplateSent', { name: template.name }));
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : 'network error';
-      toast.error(`Failed to send template: ${reason}`);
-    } finally {
-      setSendingTemplate(false);
-    }
   }
 
   function getInitials(name?: string | null) {
@@ -383,7 +302,6 @@ export function ContactDetailView({
   }
 
   return (
-    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
@@ -437,21 +355,6 @@ export function ContactDetailView({
                     )}
                   </div>
                 </div>
-              </div>
-              <div className="mt-3">
-                <Button
-                  size="sm"
-                  onClick={() => setTemplatePickerOpen(true)}
-                  disabled={sendingTemplate}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  {sendingTemplate ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <LayoutTemplate className="size-4" />
-                  )}
-                  {t('sendTemplateBtn')}
-                </Button>
               </div>
             </SheetHeader>
 
@@ -561,7 +464,7 @@ export function ContactDetailView({
                           <button
                             key={tag.id}
                             onClick={() => toggleTag(tag.id)}
-                            disabled={savingTags}
+                            disabled={savingTagId === tag.id}
                             className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer ${
                               selected
                                 ? 'ring-2 ring-primary ring-offset-1 ring-offset-border'
@@ -606,45 +509,47 @@ export function ContactDetailView({
                   </Button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto space-y-2">
-                  {loadingNotes ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : notes.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      {t('notesTab.noNotes')}
-                    </p>
-                  ) : (
-                    notes.map((note) => (
-                      <div
-                        key={note.id}
-                        className="rounded-lg bg-muted/50 border border-border/50 p-3 group"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm text-muted-foreground whitespace-pre-wrap flex-1">
-                            {note.note_text}
-                          </p>
-                          <button
-                            onClick={() => deleteNote(note.id)}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all cursor-pointer shrink-0"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1.5">
-                          {new Date(note.created_at).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
+                <ScrollArea className="flex-1">
+                  <div className="space-y-2 pr-2">
+                    {loadingNotes ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="size-5 animate-spin text-muted-foreground" />
                       </div>
-                    ))
-                  )}
-                </div>
+                    ) : notes.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-8">
+                        {t('notesTab.noNotes')}
+                      </p>
+                    ) : (
+                      notes.map((note) => (
+                        <div
+                          key={note.id}
+                          className="rounded-lg bg-muted/50 border border-border/50 p-3 group"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm text-muted-foreground whitespace-pre-wrap flex-1">
+                              {note.noteText}
+                            </p>
+                            <button
+                              onClick={() => deleteNote(note.id)}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1.5">
+                            {new Date(note.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
               </TabsContent>
 
               {/* Custom Fields Tab */}
@@ -662,7 +567,7 @@ export function ContactDetailView({
                     {customFields.map((field) => (
                       <div key={field.id} className="space-y-1.5">
                         <Label className="text-muted-foreground text-xs capitalize">
-                          {field.field_name}
+                          {field.fieldName}
                         </Label>
                         <Input
                           value={customValues[field.id] ?? ''}
@@ -672,7 +577,7 @@ export function ContactDetailView({
                               [field.id]: e.target.value,
                             }))
                           }
-                          placeholder={t('enterCustomField', { name: field.field_name })}
+                          placeholder={t('enterCustomField', { name: field.fieldName })}
                           className="bg-muted border-border text-foreground h-8 text-sm placeholder:text-muted-foreground"
                         />
                       </div>
@@ -713,27 +618,16 @@ export function ContactDetailView({
                           <p className="text-sm font-medium text-foreground">
                             {deal.title}
                           </p>
-                          {deal.stage && (
-                            <span
-                              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{
-                                backgroundColor: `${deal.stage.color}20`,
-                                color: deal.stage.color,
-                              }}
-                            >
-                              {deal.stage.name}
-                            </span>
-                          )}
                         </div>
                         <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <DollarSign className="size-3" />
                             {formatCurrency(
-                              deal.value ?? 0,
+                              Number(deal.value ?? 0),
                               deal.currency || defaultCurrency,
                             )}
                           </span>
-                          {deal.status && deal.status !== 'open' && (
+                          {deal.status && deal.status !== 'active' && (
                             <span
                               className={
                                 deal.status === 'won'
@@ -755,11 +649,5 @@ export function ContactDetailView({
         )}
       </SheetContent>
     </Sheet>
-    <TemplatePicker
-      open={templatePickerOpen}
-      onOpenChange={setTemplatePickerOpen}
-      onSelect={handleSendTemplate}
-    />
-    </>
   );
 }

@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import type { Contact, Deal, ContactNote, Tag } from "@/types";
 import {
@@ -10,7 +8,6 @@ import {
   Mail,
   Copy,
   Check,
-  User,
   Tag as TagIcon,
   DollarSign,
   StickyNote,
@@ -25,59 +22,60 @@ interface ContactSidebarProps {
   contact: Contact | null;
 }
 
+/**
+ * Shape of GET /api/contacts/<id> — that route belongs to the Contacts
+ * fatia (being built in parallel) and isn't implemented here, only
+ * consumed. `notes` / `tags` are read defensively (optional) in case
+ * that route doesn't embed them yet.
+ */
+interface ContactDetailResponse {
+  contact?: Contact;
+  notes?: ContactNote[];
+  tags?: Tag[];
+}
+
 export function ContactSidebar({ contact }: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
-  const { accountId } = useAuth();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
-  const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
 
   const fetchContactData = useCallback(async () => {
-    if (!contact) return;
+    if (!contact) {
+      setDeals([]);
+      setNotes([]);
+      setTags([]);
+      return;
+    }
 
-    const supabase = createClient();
-
-    // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
-      supabase
-        .from("deals")
-        .select("*, stage:pipeline_stages(*)")
-        .eq("contact_id", contact.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("contact_notes")
-        .select("*")
-        .eq("contact_id", contact.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("contact_tags")
-        .select("id, tag_id, tags(*)")
-        .eq("contact_id", contact.id),
+    const [dealsRes, contactRes] = await Promise.all([
+      fetch(`/api/deals?contactId=${encodeURIComponent(contact.id)}`, { cache: "no-store" }).catch(
+        () => null,
+      ),
+      fetch(`/api/contacts/${encodeURIComponent(contact.id)}`, { cache: "no-store" }).catch(
+        () => null,
+      ),
     ]);
 
-    if (dealsRes.data) setDeals(dealsRes.data);
-    if (notesRes.data) setNotes(notesRes.data);
-    if (tagsRes.data) {
-      const mapped = tagsRes.data
-        .filter((ct: Record<string, unknown>) => ct.tags)
-        .map((ct: Record<string, unknown>) => ({
-          ...(ct.tags as Tag),
-          contact_tag_id: ct.id as string,
-        }));
-      setTags(mapped);
+    if (dealsRes?.ok) {
+      const data = await dealsRes.json().catch(() => ({}));
+      setDeals((data.deals ?? []) as Deal[]);
+    }
+
+    if (contactRes?.ok) {
+      const data = (await contactRes.json().catch(() => ({}))) as ContactDetailResponse;
+      setNotes(data.notes ?? []);
+      setTags(data.tags ?? []);
     }
   }, [contact]);
 
-  // Load on contact change. setContactData/setTags run inside async
-  // Supabase callbacks, not synchronously in the effect body.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchContactData();
+    void fetchContactData();
   }, [fetchContactData]);
 
   const handleCopyPhone = useCallback(async () => {
@@ -85,39 +83,26 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     await navigator.clipboard.writeText(contact.phone);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    // Dep is the whole `contact` object (not `contact?.phone`) so the
-    // React Compiler's inference agrees with the manual dep list —
-    // fixes the `preserve-manual-memoization` lint error.
   }, [contact]);
 
   const handleAddNote = useCallback(async () => {
     if (!contact || !newNote.trim()) return;
-    if (!accountId) return;
     setAddingNote(true);
-
-    const supabase = createClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user;
-
-    const { data, error } = await supabase
-      .from("contact_notes")
-      .insert({
-        contact_id: contact.id,
-        account_id: accountId,
-        user_id: user?.id,
-        note_text: newNote.trim(),
-      })
-      .select()
-      .single();
-
-    if (!error && data) {
-      setNotes((prev) => [data, ...prev]);
-      setNewNote("");
+    try {
+      const res = await fetch(`/api/contacts/${encodeURIComponent(contact.id)}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note_text: newNote.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.note) setNotes((prev) => [data.note as ContactNote, ...prev]);
+        setNewNote("");
+      }
+    } finally {
+      setAddingNote(false);
     }
-    setAddingNote(false);
-  }, [contact, newNote, accountId]);
+  }, [contact, newNote]);
 
   if (!contact) {
     return (
@@ -138,6 +123,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           <div className="flex flex-col items-center text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-lg font-semibold text-foreground">
               {contact.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={contact.avatar_url}
                   alt={displayName}
@@ -193,7 +179,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               ) : (
                 tags.map((tag) => (
                   <span
-                    key={tag.contact_tag_id}
+                    key={tag.id}
                     className="rounded-full px-2 py-0.5 text-[10px] font-medium"
                     style={{
                       backgroundColor: `${tag.color}20`,

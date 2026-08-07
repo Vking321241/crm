@@ -15,6 +15,13 @@
       "when": 1785374672621,
       "tag": "0001_cooing_metal_master",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786109421316,
+      "tag": "0002_rare_klaw",
+      "breakpoints": true
     }
   ]
 }

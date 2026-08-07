@@ -1,24 +1,14 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/hooks/use-auth';
-import {
-  dedupeByPhone,
-  isUniqueViolation,
-  normalizeKey,
-} from '@/lib/contacts/dedupe';
+import { dedupeByPhone } from '@/lib/contacts/dedupe';
 import {
   parseContactCsv,
   type ParsedContactRow,
 } from '@/lib/contacts/parse-contact-csv';
-import {
-  assignImportedContactTags,
-  resolveImportTagIds,
-  type ContactTagAssignment,
-} from '@/lib/contacts/resolve-import-tags';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import type { Tag } from '@/components/contacts/types';
 import {
   Dialog,
   DialogContent,
@@ -35,12 +25,12 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
-  Tag,
+  Tag as TagIcon,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-const DEFAULT_TAG_COLOR = '#3b82f6';
 const PREVIEW_LIMIT = 5;
+const CONCURRENCY = 5;
 
 function truncateFilename(name: string, max = 48): string {
   if (name.length <= max) return name;
@@ -61,11 +51,7 @@ function PreviewCell({
 }) {
   return (
     <span
-      className={cn(
-        'block truncate',
-        maxWidth,
-        mono && 'font-mono text-[11px]'
-      )}
+      className={cn('block truncate', maxWidth, mono && 'font-mono text-[11px]')}
       title={value}
     >
       {value}
@@ -80,8 +66,6 @@ function ImportPreviewTags({
   tagNames: string[];
   tagColorByKey: Map<string, string>;
 }) {
-  const t = useTranslations('Contacts.importModal');
-
   if (tagNames.length === 0) {
     return <span className="text-muted-foreground">—</span>;
   }
@@ -89,9 +73,9 @@ function ImportPreviewTags({
   return (
     <div className="flex min-w-[4.5rem] flex-wrap gap-1">
       {tagNames.map((name) => {
-        const color =
-          tagColorByKey.get(name.trim().toLowerCase()) ?? DEFAULT_TAG_COLOR;
-        const isKnown = tagColorByKey.has(name.trim().toLowerCase());
+        const key = name.trim().toLowerCase();
+        const isKnown = tagColorByKey.has(key);
+        const color = tagColorByKey.get(key) ?? '#3b82f6';
         return (
           <span
             key={name}
@@ -101,12 +85,9 @@ function ImportPreviewTags({
               color,
               border: `1px solid ${color}${isKnown ? '55' : '30'}`,
             }}
-            title={isKnown ? name : t('willBeCreated', { name })}
+            title={isKnown ? name : `${name} (tag not found — will be skipped)`}
           >
-            <span
-              className="size-1.5 shrink-0 rounded-full"
-              style={{ backgroundColor: color }}
-            />
+            <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
             <span className="truncate">{name}</span>
           </span>
         );
@@ -121,29 +102,21 @@ interface ImportModalProps {
   onImported: () => void;
 }
 
-export function ImportModal({
-  open,
-  onOpenChange,
-  onImported,
-}: ImportModalProps) {
+export function ImportModal({ open, onOpenChange, onImported }: ImportModalProps) {
   const t = useTranslations('Contacts.importModal');
-  const supabase = createClient();
-  const { accountId, canEditSettings } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedContactRow[]>([]);
   const [hasTagsColumn, setHasTagsColumn] = useState(false);
   const [hasCompanyColumn, setHasCompanyColumn] = useState(false);
-  const [tagColorByKey, setTagColorByKey] = useState<Map<string, string>>(
-    new Map()
-  );
+  const [tagIdByKey, setTagIdByKey] = useState<Map<string, string>>(new Map());
+  const [tagColorByKey, setTagColorByKey] = useState<Map<string, string>>(new Map());
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<{
     imported: number;
     skipped: number;
     failed: number;
-    tagsAssigned: number;
   } | null>(null);
 
   function reset() {
@@ -151,6 +124,7 @@ export function ImportModal({
     setParsedRows([]);
     setHasTagsColumn(false);
     setHasCompanyColumn(false);
+    setTagIdByKey(new Map());
     setTagColorByKey(new Map());
     setResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -180,6 +154,7 @@ export function ImportModal({
       setParsedRows([]);
       setHasTagsColumn(false);
       setHasCompanyColumn(false);
+      setTagIdByKey(new Map());
       setTagColorByKey(new Map());
       return;
     }
@@ -188,20 +163,48 @@ export function ImportModal({
     setHasTagsColumn(csvHasTags);
     setHasCompanyColumn(csvHasCompany);
 
-    if (csvHasTags && accountId) {
-      const { data: tags } = await supabase
-        .from('tags')
-        .select('name, color')
-        .eq('account_id', accountId);
-
-      const colors = new Map<string, string>();
-      for (const tag of tags ?? []) {
-        const key = tag.name.trim().toLowerCase();
-        if (!colors.has(key)) colors.set(key, tag.color);
+    if (csvHasTags) {
+      const res = await fetch('/api/tags');
+      if (res.ok) {
+        const data = (await res.json()) as { tags: Tag[] };
+        const ids = new Map<string, string>();
+        const colors = new Map<string, string>();
+        for (const tag of data.tags ?? []) {
+          const key = tag.name.trim().toLowerCase();
+          ids.set(key, tag.id);
+          colors.set(key, tag.color);
+        }
+        setTagIdByKey(ids);
+        setTagColorByKey(colors);
       }
-      setTagColorByKey(colors);
     } else {
+      setTagIdByKey(new Map());
       setTagColorByKey(new Map());
+    }
+  }
+
+  async function importOne(row: ParsedContactRow): Promise<'imported' | 'skipped' | 'failed'> {
+    const tagIds = row.tagNames
+      .map((name) => tagIdByKey.get(name.trim().toLowerCase()))
+      .filter((id): id is string => !!id);
+
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: row.phone,
+          name: row.name || '',
+          email: row.email || '',
+          company: row.company || '',
+          tagIds,
+        }),
+      });
+      if (res.status === 409) return 'skipped';
+      if (!res.ok) return 'failed';
+      return 'imported';
+    } catch {
+      return 'failed';
     }
   }
 
@@ -210,150 +213,33 @@ export function ImportModal({
     setImporting(true);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) throw new Error('Not authenticated');
-      if (!accountId)
-        throw new Error('Your profile is not linked to an account.');
-
-      let imported = 0;
-      let skipped = 0;
-      let failed = 0;
-
       // 1) De-dupe within the file by normalized phone (keep first).
       const { unique, duplicates: inFileDupes } = dedupeByPhone(parsedRows);
-      skipped += inFileDupes;
 
-      // 2) Skip numbers already in this account. One read of the
-      //    generated `phone_normalized` column (migration 022) → Set.
-      const { data: existingRows } = await supabase
-        .from('contacts')
-        .select('phone_normalized')
-        .eq('account_id', accountId);
-      const existing = new Set(
-        (existingRows ?? [])
-          .map(
-            (r) => (r as { phone_normalized: string | null }).phone_normalized
-          )
-          .filter((p): p is string => !!p)
-      );
+      let imported = 0;
+      let skipped = inFileDupes;
+      let failed = 0;
 
-      const toInsert = unique.filter((row) => {
-        if (existing.has(normalizeKey(row.phone))) {
-          skipped++;
-          return false;
-        }
-        return true;
-      });
-
-      // 3) Resolve tag names → ids (admin+ may auto-create missing tags).
-      //    Skip the round-trip when the import carries no tag names.
-      const allTagNames = toInsert.flatMap((row) => row.tagNames);
-      let tagIdByKey = new Map<string, string>();
-      let skippedNames: string[] = [];
-      if (allTagNames.length > 0) {
-        ({ tagIdByKey, skippedNames } = await resolveImportTagIds(supabase, {
-          accountId,
-          userId: user.id,
-          tagNames: allTagNames,
-          canCreateTags: canEditSettings,
-        }));
-      }
-
-      const tagAssignments: ContactTagAssignment[] = [];
-
-      // 4) Batch insert the genuinely-new rows in chunks of 50. The DB
-      //    unique index is the backstop: a 23505 (race, or a format
-      //    that normalizes equal) counts as skipped, not failed.
-      const chunkSize = 50;
-
-      for (let i = 0; i < toInsert.length; i += chunkSize) {
-        const chunk = toInsert.slice(i, i + chunkSize);
-        const rows = chunk.map((row) => ({
-          user_id: user.id,
-          account_id: accountId,
-          phone: row.phone,
-          name: row.name || null,
-          email: row.email || null,
-          company: row.company || null,
-        }));
-
-        const { data, error } = await supabase
-          .from('contacts')
-          .insert(rows)
-          .select('id');
-
-        if (error) {
-          // Retry individually so one bad/duplicate row doesn't sink
-          // the whole chunk.
-          for (let j = 0; j < rows.length; j++) {
-            const row = rows[j];
-            const source = chunk[j];
-            const { data: singleData, error: singleErr } = await supabase
-              .from('contacts')
-              .insert(row)
-              .select('id')
-              .single();
-
-            if (!singleErr && singleData) {
-              imported++;
-              if (source.tagNames.length > 0) {
-                tagAssignments.push({
-                  contactId: singleData.id,
-                  tagNames: source.tagNames,
-                });
-              }
-            } else if (isUniqueViolation(singleErr)) {
-              skipped++;
-            } else {
-              failed++;
-            }
-          }
-        } else {
-          const inserted = data ?? [];
-          imported += inserted.length;
-          // inserted[j] ↔ chunk[j] only holds because a single INSERT
-          // preserves RETURNING order. If this path is ever split into
-          // parallel inserts, zip by phone or returned id instead.
-          for (let j = 0; j < inserted.length; j++) {
-            const source = chunk[j];
-            if (!source || source.tagNames.length === 0) continue;
-            tagAssignments.push({
-              contactId: inserted[j].id,
-              tagNames: source.tagNames,
-            });
-          }
+      // 2) Create contacts with bounded concurrency — the account's
+      //    (account_id, phone_normalized) unique index (migration 022)
+      //    is the real dedupe backstop: a 409 counts as skipped, not
+      //    failed. Tags whose name doesn't match an existing account
+      //    tag are silently skipped (no auto-create — see AGENTS.md
+      //    scope note for the import modal).
+      for (let i = 0; i < unique.length; i += CONCURRENCY) {
+        const chunk = unique.slice(i, i + CONCURRENCY);
+        const outcomes = await Promise.all(chunk.map(importOne));
+        for (const outcome of outcomes) {
+          if (outcome === 'imported') imported++;
+          else if (outcome === 'skipped') skipped++;
+          else failed++;
         }
       }
 
-      // 5) Wire tags onto the contacts we just created. Failure here must
-      //    not mask a successful contact import.
-      let tagsAssigned = 0;
-      try {
-        tagsAssigned = await assignImportedContactTags(
-          supabase,
-          tagAssignments,
-          tagIdByKey
-        );
-      } catch {
-        toast.warning(t('toastTagsWarning'));
-      }
-
-      setResult({ imported, skipped, failed, tagsAssigned });
+      setResult({ imported, skipped, failed });
       if (imported > 0) {
         toast.success(t('toastImported', { count: imported }));
         onImported();
-      }
-      if (tagsAssigned > 0) {
-        toast.success(t('toastTagsAssigned', { count: tagsAssigned }));
-      }
-      if (skippedNames.length > 0) {
-        const sample = skippedNames.slice(0, 3).join(', ');
-        const more =
-          skippedNames.length > 3 ? ` (+${skippedNames.length - 3} more)` : '';
-        toast.info(t('toastTagsSkipped', { sample, more }));
       }
       if (skipped > 0) {
         toast.info(t('toastSkipped', { count: skipped }));
@@ -370,14 +256,8 @@ export function ImportModal({
   }
 
   const preview = parsedRows.slice(0, PREVIEW_LIMIT);
-  // Tags: OR — show when the CSV declares a column or preview rows carry
-  // values, so an all-empty tags column still renders for validation.
-  const previewHasTags =
-    hasTagsColumn || preview.some((row) => row.tagNames.length > 0);
-  // Company: AND — hide unless the CSV declares it and preview has data,
-  // avoiding an all-dash column that wastes horizontal space.
-  const previewHasCompany =
-    hasCompanyColumn && preview.some((row) => row.company?.trim());
+  const previewHasTags = hasTagsColumn || preview.some((row) => row.tagNames.length > 0);
+  const previewHasCompany = hasCompanyColumn && preview.some((row) => row.company?.trim());
 
   const tagStats = useMemo(() => {
     const names = new Set<string>();
@@ -398,7 +278,8 @@ export function ImportModal({
             <DialogTitle className="text-lg text-popover-foreground">
               {t('title')}
             </DialogTitle>
-            <DialogDescription className="leading-relaxed text-muted-foreground"
+            <DialogDescription
+              className="leading-relaxed text-muted-foreground"
               dangerouslySetInnerHTML={{
                 __html: t.markup('desc', {
                   phoneCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
@@ -406,7 +287,7 @@ export function ImportModal({
                   emailCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
                   companyCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
                   tagsCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                })
+                }),
               }}
             />
           </DialogHeader>
@@ -416,8 +297,7 @@ export function ImportModal({
             tabIndex={0}
             onClick={() => fileInputRef.current?.click()}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ')
-                fileInputRef.current?.click();
+              if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
             }}
             className={cn(
               'group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-5 transition-all',
@@ -446,12 +326,8 @@ export function ImportModal({
                 <div className="flex size-10 items-center justify-center rounded-lg bg-muted/80 ring-1 ring-border/80 transition-colors group-hover:bg-muted">
                   <Upload className="size-5 text-muted-foreground group-hover:text-foreground" />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {t('uploadDropzone')}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {t('uploadHint')}
-                </p>
+                <p className="text-sm text-muted-foreground">{t('uploadDropzone')}</p>
+                <p className="text-[11px] text-muted-foreground">{t('uploadHint')}</p>
               </>
             )}
           </div>
@@ -475,7 +351,7 @@ export function ImportModal({
                 <div className="flex flex-wrap items-center gap-1.5">
                   {tagStats.rowsWithTags > 0 && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-muted/90 px-2 py-0.5 text-[11px] text-muted-foreground">
-                      <Tag className="text-primary/80 size-3" />
+                      <TagIcon className="text-primary/80 size-3" />
                       {t('previewTags', { tags: tagStats.unique, contacts: tagStats.rowsWithTags })}
                     </span>
                   )}
@@ -510,43 +386,24 @@ export function ImportModal({
                     </thead>
                     <tbody className="divide-y divide-border/70">
                       {preview.map((row, i) => (
-                        <tr
-                          key={i}
-                          className="bg-popover/40 transition-colors hover:bg-muted/30"
-                        >
+                        <tr key={i} className="bg-popover/40 transition-colors hover:bg-muted/30">
                           <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                            <PreviewCell
-                              value={row.phone}
-                              mono
-                              maxWidth="max-w-[7.5rem]"
-                            />
+                            <PreviewCell value={row.phone} mono maxWidth="max-w-[7.5rem]" />
                           </td>
                           <td className="px-3 py-2 text-popover-foreground">
-                            <PreviewCell
-                              value={row.name || '—'}
-                              maxWidth="max-w-[8.5rem]"
-                            />
+                            <PreviewCell value={row.name || '—'} maxWidth="max-w-[8.5rem]" />
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
-                            <PreviewCell
-                              value={row.email || '—'}
-                              maxWidth="max-w-[10rem]"
-                            />
+                            <PreviewCell value={row.email || '—'} maxWidth="max-w-[10rem]" />
                           </td>
                           {previewHasCompany && (
                             <td className="px-3 py-2 text-muted-foreground">
-                              <PreviewCell
-                                value={row.company || '—'}
-                                maxWidth="max-w-[7rem]"
-                              />
+                              <PreviewCell value={row.company || '—'} maxWidth="max-w-[7rem]" />
                             </td>
                           )}
                           {previewHasTags && (
                             <td className="px-3 py-2 align-top">
-                              <ImportPreviewTags
-                                tagNames={row.tagNames}
-                                tagColorByKey={tagColorByKey}
-                              />
+                              <ImportPreviewTags tagNames={row.tagNames} tagColorByKey={tagColorByKey} />
                             </td>
                           )}
                         </tr>
@@ -572,12 +429,6 @@ export function ImportModal({
                   <div className="text-primary flex items-center gap-1.5 text-sm">
                     <CheckCircle className="size-4 shrink-0" />
                     {t('resultImported', { count: result.imported })}
-                  </div>
-                )}
-                {result.tagsAssigned > 0 && (
-                  <div className="flex items-center gap-1.5 text-sm text-cyan-400">
-                    <CheckCircle className="size-4 shrink-0" />
-                    {t('resultTags', { count: result.tagsAssigned })}
                   </div>
                 )}
                 {result.skipped > 0 && (

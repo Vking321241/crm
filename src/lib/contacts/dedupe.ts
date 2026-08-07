@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { like, eq, and } from "drizzle-orm";
+import type { Db } from "@/db/client";
+import { contacts } from "@/db/schema";
 import { normalizePhone, phonesMatch } from "@/lib/whatsapp/phone-utils";
 
 /**
@@ -53,6 +56,28 @@ export async function findExistingContact(
   return (
     (data as ExistingContact[]).find((c) => phonesMatch(c.phone, phone)) ?? null
   );
+}
+
+/**
+ * Drizzle/Postgres equivalent of `findExistingContact`, for callers on
+ * the new `@/db` stack (the UAZAPI webhook) instead of Supabase.
+ */
+export async function findExistingContactDb(
+  db: Db,
+  accountId: string,
+  phone: string,
+): Promise<ExistingContact | null> {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+
+  const suffix = normalized.length >= 8 ? normalized.slice(-8) : normalized;
+
+  const rows = await db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.accountId, accountId), like(contacts.phone, `%${suffix}`)));
+
+  return rows.find((c) => phonesMatch(c.phone, phone)) ?? null;
 }
 
 /**

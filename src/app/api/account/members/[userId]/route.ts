@@ -4,43 +4,29 @@
 //   PATCH  — change a member's role.   Admin+.
 //   DELETE — remove a member.          Admin+.
 //
-// Both delegate to SECURITY DEFINER RPCs from migration 018:
-//   - set_member_role(p_user_id, p_new_role)
-//   - remove_account_member(p_user_id)
+// Fatia 3: the business rules that used to live in the
+// SECURITY DEFINER RPCs `set_member_role`/`remove_account_member`
+// (migration 018) are reimplemented here in TS, since there's no
+// RLS boundary to bypass anymore — this route IS the authority.
 //
-// The RPCs do the *real* authorisation work — caller must be
-// admin+, target must be in caller's account, target can't be the
-// owner, can't be self. The TS layer here only forwards the call
-// and maps Postgres SQLSTATEs back to HTTP statuses.
+// Removing a member deletes their `users` row outright (cascades to
+// their sessions) rather than spinning up a fresh personal account
+// the way the Supabase-era RPC did — DivaryTalk's closed
+// provisioning model has no self-service "personal account" concept
+// to relocate them to; removal just revokes access and frees a seat.
 // ============================================================
 
 import { NextResponse } from "next/server";
-import type { PostgrestError } from "@supabase/supabase-js";
+import { and, eq, ne } from "drizzle-orm";
 
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
+import { requireRole, toErrorResponse, ForbiddenError } from "@/lib/auth/account";
 import { isAccountRole } from "@/lib/auth/roles";
+import { users } from "@/db/schema";
 import {
   checkRateLimit,
   rateLimitResponse,
   RATE_LIMITS,
 } from "@/lib/rate-limit";
-
-// Map known SQLSTATEs from the RPCs (see migration 018) onto HTTP
-// statuses. The `error.code` field is the SQLSTATE; the `message`
-// is the human-readable RAISE message we put in the migration.
-function rpcErrorToResponse(err: PostgrestError): NextResponse {
-  if (err.code === "42501") {
-    return NextResponse.json({ error: err.message }, { status: 403 });
-  }
-  if (err.code === "22023") {
-    return NextResponse.json({ error: err.message }, { status: 400 });
-  }
-  console.error("[members route] unexpected RPC error:", err);
-  return NextResponse.json(
-    { error: "Failed to update member" },
-    { status: 500 },
-  );
-}
 
 export async function PATCH(
   request: Request,
@@ -49,17 +35,12 @@ export async function PATCH(
   try {
     const ctx = await requireRole("admin");
 
-    const limit = checkRateLimit(
-      `admin:memberRole:${ctx.userId}`,
-      RATE_LIMITS.adminAction,
-    );
+    const limit = checkRateLimit(`admin:memberRole:${ctx.userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);
 
     const { userId } = await params;
 
-    const body = (await request.json().catch(() => null)) as
-      | { role?: unknown }
-      | null;
+    const body = (await request.json().catch(() => null)) as { role?: unknown } | null;
     const role = body?.role;
 
     if (!isAccountRole(role)) {
@@ -68,25 +49,39 @@ export async function PATCH(
         { status: 400 },
       );
     }
-
-    // The RPC blocks promotion to / demotion from owner, but
-    // surface the friendlier 400 before crossing the wire too.
     if (role === "owner") {
       return NextResponse.json(
-        {
-          error:
-            "Use POST /api/account/transfer-ownership to promote a member to owner",
-        },
+        { error: "Use POST /api/account/transfer-ownership to promote a member to owner" },
+        { status: 400 },
+      );
+    }
+    if (userId === ctx.userId) {
+      return NextResponse.json({ error: "Cannot change your own role" }, { status: 400 });
+    }
+
+    const [target] = await ctx.db
+      .select({ accountId: users.accountId, role: users.accountRole })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!target) {
+      return NextResponse.json({ error: "Target user not found" }, { status: 400 });
+    }
+    if (target.accountId !== ctx.accountId) {
+      return NextResponse.json(
+        { error: "Target user is not a member of your account" },
+        { status: 403 },
+      );
+    }
+    if (target.role === "owner") {
+      return NextResponse.json(
+        { error: "Use transfer ownership to demote an owner" },
         { status: 400 },
       );
     }
 
-    const { error } = await ctx.supabase.rpc("set_member_role", {
-      p_user_id: userId,
-      p_new_role: role,
-    });
-
-    if (error) return rpcErrorToResponse(error);
+    await ctx.db.update(users).set({ accountRole: role, updatedAt: new Date() }).where(eq(users.id, userId));
 
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -101,21 +96,42 @@ export async function DELETE(
   try {
     const ctx = await requireRole("admin");
 
-    const limit = checkRateLimit(
-      `admin:memberRemove:${ctx.userId}`,
-      RATE_LIMITS.adminAction,
-    );
+    const limit = checkRateLimit(`admin:memberRemove:${ctx.userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);
 
     const { userId } = await params;
 
-    const { data, error } = await ctx.supabase.rpc("remove_account_member", {
-      p_user_id: userId,
-    });
+    if (userId === ctx.userId) {
+      throw new ForbiddenError("Cannot remove yourself; transfer ownership first");
+    }
 
-    if (error) return rpcErrorToResponse(error);
+    const [target] = await ctx.db
+      .select({ accountId: users.accountId, role: users.accountRole })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
-    return NextResponse.json({ ok: true, newPersonalAccountId: data });
+    if (!target) {
+      return NextResponse.json({ error: "Target user not found" }, { status: 400 });
+    }
+    if (target.accountId !== ctx.accountId) {
+      return NextResponse.json(
+        { error: "Target user is not a member of your account" },
+        { status: 403 },
+      );
+    }
+    if (target.role === "owner") {
+      return NextResponse.json(
+        { error: "Cannot remove the account owner; transfer ownership first" },
+        { status: 400 },
+      );
+    }
+
+    await ctx.db
+      .delete(users)
+      .where(and(eq(users.id, userId), eq(users.accountId, ctx.accountId), ne(users.accountRole, "owner")));
+
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return toErrorResponse(err);
   }

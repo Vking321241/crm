@@ -1,10 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
-import type { CustomField } from '@/types';
+import type { CustomField } from '@/components/contacts/types';
 import {
   Dialog,
   DialogContent,
@@ -52,12 +50,11 @@ export function CustomFieldsManager({
  * Create / rename / delete account-wide custom contact field definitions.
  * Per-contact values are edited elsewhere (contact detail → Custom Fields);
  * this only manages the field catalogue. Admin+ gated by the caller — the
- * `custom_fields` RLS also rejects non-admin writes as defense in depth.
+ * `/api/custom-fields` route also rejects non-admin writes as defense in
+ * depth.
  */
 export function CustomFieldsPanel() {
   const t = useTranslations('Contacts.customFields');
-  const supabase = createClient();
-  const { user, accountId } = useAuth();
 
   const [fields, setFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,57 +63,39 @@ export function CustomFieldsPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const fetchFields = useCallback(async () => {
-    if (!accountId) return;
     setLoading(true);
-    const { data } = await supabase
-      .from('custom_fields')
-      .select('*')
-      .order('field_name');
-    setFields((data as CustomField[] | null) ?? []);
-    setLoading(false);
-  }, [supabase, accountId]);
-
-  // Load the field list on mount once the account is known. The setters
-  // inside fetchFields run after the Supabase await — not synchronously in
-  // the effect body — so the cascade the lint rule warns about doesn't apply.
-  useEffect(() => {
-    if (accountId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      fetchFields();
+    const res = await fetch('/api/custom-fields');
+    if (res.ok) {
+      const data = (await res.json()) as { customFields: CustomField[] };
+      setFields(data.customFields ?? []);
     }
-  }, [accountId, fetchFields]);
+    setLoading(false);
+  }, []);
 
-  /** Case-insensitive name clash within the loaded list. */
-  function isDuplicate(name: string, exceptId?: string): boolean {
-    const lower = name.toLowerCase();
-    return fields.some(
-      (f) => f.id !== exceptId && f.field_name.toLowerCase() === lower
-    );
-  }
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchFields();
+  }, [fetchFields]);
 
   async function handleCreate() {
     const name = newName.trim();
     if (!name) return;
-    if (!accountId || !user) {
-      toast.error(t('toastNoAccount'));
-      return;
-    }
-    if (isDuplicate(name)) {
-      toast.error(t('toastDuplicate', { name }));
-      return;
-    }
 
     setCreating(true);
-    const { error } = await supabase.from('custom_fields').insert({
-      field_name: name,
-      field_type: 'text',
-      user_id: user.id,
-      account_id: accountId,
+    const res = await fetch('/api/custom-fields', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fieldName: name, fieldType: 'text' }),
     });
     setCreating(false);
 
-    if (error) {
-      toast.error(t('toastCreateFailed'));
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        toast.error(t('toastDuplicate', { name }));
+      } else {
+        toast.error(body?.error || t('toastCreateFailed'));
+      }
       return;
     }
     toast.success(t('toastCreated', { name }));
@@ -131,19 +110,22 @@ export function CustomFieldsPanel() {
     nextName: string
   ): Promise<boolean> {
     const name = nextName.trim();
-    if (!name || name === field.field_name) return true;
-    if (isDuplicate(name, field.id)) {
-      toast.error(t('toastDuplicate', { name }));
-      return false;
-    }
+    if (!name || name === field.fieldName) return true;
+
     setBusyId(field.id);
-    const { error } = await supabase
-      .from('custom_fields')
-      .update({ field_name: name })
-      .eq('id', field.id);
+    const res = await fetch(`/api/custom-fields/${field.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fieldName: name }),
+    });
     setBusyId(null);
-    if (error) {
-      toast.error(t('toastRenameFailed'));
+
+    if (!res.ok) {
+      if (res.status === 409) {
+        toast.error(t('toastDuplicate', { name }));
+      } else {
+        toast.error(t('toastRenameFailed'));
+      }
       return false;
     }
     await fetchFields();
@@ -153,22 +135,19 @@ export function CustomFieldsPanel() {
   async function handleDelete(field: CustomField) {
     if (
       !window.confirm(
-        t('deleteConfirm', { name: field.field_name })
+        t('deleteConfirm', { name: field.fieldName })
       )
     ) {
       return;
     }
     setBusyId(field.id);
-    const { error } = await supabase
-      .from('custom_fields')
-      .delete()
-      .eq('id', field.id);
+    const res = await fetch(`/api/custom-fields/${field.id}`, { method: 'DELETE' });
     setBusyId(null);
-    if (error) {
+    if (!res.ok) {
       toast.error(t('toastDeleteFailed'));
       return;
     }
-    toast.success(t('toastDeleted', { name: field.field_name }));
+    toast.success(t('toastDeleted', { name: field.fieldName }));
     await fetchFields();
   }
 
@@ -245,15 +224,15 @@ function FieldRow({
   onDelete: (field: CustomField) => void;
 }) {
   const t = useTranslations('Contacts.customFields');
-  const [name, setName] = useState(field.field_name);
+  const [name, setName] = useState(field.fieldName);
 
   async function commit() {
-    if (name.trim() === field.field_name) {
-      setName(field.field_name); // normalise any whitespace-only edit
+    if (name.trim() === field.fieldName) {
+      setName(field.fieldName); // normalise any whitespace-only edit
       return;
     }
     const ok = await onRename(field, name);
-    if (!ok) setName(field.field_name);
+    if (!ok) setName(field.fieldName);
   }
 
   return (
@@ -266,7 +245,7 @@ function FieldRow({
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();
         }}
-        aria-label={t('renameAria', { name: field.field_name })}
+        aria-label={t('renameAria', { name: field.fieldName })}
         className="focus:border-primary h-8 border-transparent bg-transparent text-foreground hover:border-border"
       />
       <Button

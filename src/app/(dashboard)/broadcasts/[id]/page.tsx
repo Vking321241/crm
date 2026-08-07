@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,14 +23,12 @@ import {
   Loader2,
   Users,
   Send,
-  CheckCheck,
-  Eye,
   AlertCircle,
-  MessageCircle,
   Filter,
   Download,
   ChevronDown,
   Trash2,
+  ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -39,6 +36,9 @@ import {
   getRecipientStatus,
 } from '@/lib/broadcast-status';
 import { useTranslations } from 'next-intl';
+
+/** Poll cadence while the broadcast is actively sending. */
+const POLL_INTERVAL_MS = 3_000;
 
 interface StatCardProps {
   label: string;
@@ -64,54 +64,6 @@ function StatCard({ label, value, total, icon, color }: StatCardProps) {
   );
 }
 
-interface FunnelStep {
-  label: string;
-  value: number;
-  color: string;
-}
-
-/**
- * Pure-CSS funnel chart: decreasing-width rounded bars.
- * Width is relative to the largest step (typically Sent) so we
- * always render a full bar at the top and proportional tails.
- */
-function FunnelChart({ steps }: { steps: FunnelStep[] }) {
-  const max = Math.max(...steps.map((s) => s.value), 1);
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <h3 className="mb-4 text-sm font-medium text-foreground">Funnel</h3>
-      <div className="space-y-2">
-        {steps.map((step) => {
-          const pctOfMax = Math.max(5, Math.round((step.value / max) * 100));
-          const pctOfSent =
-            steps[0].value > 0
-              ? Math.round((step.value / steps[0].value) * 100)
-              : 0;
-          return (
-            <div key={step.label} className="flex items-center gap-3">
-              <span className="w-20 shrink-0 text-xs text-muted-foreground">
-                {step.label}
-              </span>
-              <div className="relative h-7 flex-1 rounded-full bg-muted">
-                <div
-                  className={`h-7 rounded-full ${step.color} transition-[width] duration-500`}
-                  style={{ width: `${pctOfMax}%` }}
-                />
-                <span className="absolute inset-0 flex items-center px-3 text-xs font-medium text-foreground">
-                  {step.value.toLocaleString()}
-                  <span className="ml-2 text-muted-foreground/80">
-                    ({pctOfSent}%)
-                  </span>
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 const RECIPIENT_STATUSES: readonly RecipientStatus[] = [
   'pending',
   'sent',
@@ -121,10 +73,7 @@ const RECIPIENT_STATUSES: readonly RecipientStatus[] = [
   'failed',
 ];
 
-/**
- * CSV export helper — RFC 4180 quoting. Quote every field so
- * commas/newlines/quotes round-trip cleanly.
- */
+/** CSV export helper — RFC 4180 quoting. */
 function toCsv(rows: string[][]): string {
   const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
   return rows.map((r) => r.map(escape).join(',')).join('\n');
@@ -153,43 +102,46 @@ export default function BroadcastDetailPage() {
   const [recipients, setRecipients] = useState<BroadcastRecipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<RecipientStatus | 'all'>(
-    'all',
-  );
+  const [statusFilter, setStatusFilter] = useState<RecipientStatus | 'all'>('all');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/broadcasts/${broadcastId}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || t('notFound'));
+      setBroadcast(data.broadcast);
+      setRecipients(data.recipients ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('notFound'));
+    } finally {
+      setLoading(false);
+    }
+  }, [broadcastId, t]);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const supabase = createClient();
-
-        const { data: bc, error: bcError } = await supabase
-          .from('broadcasts')
-          .select('*')
-          .eq('id', broadcastId)
-          .single();
-
-        if (bcError) throw bcError;
-        setBroadcast(bc);
-
-        const { data: recs, error: recsError } = await supabase
-          .from('broadcast_recipients')
-          .select('*, contact:contacts(*)')
-          .eq('broadcast_id', broadcastId)
-          .order('created_at', { ascending: false });
-
-        if (recsError) throw recsError;
-        setRecipients(recs ?? []);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : t('notFound'));
-      } finally {
-        setLoading(false);
-      }
-    }
-
     fetchData();
-  }, [broadcastId]);
+  }, [fetchData]);
+
+  useEffect(() => {
+    function stopPolling() {
+      if (!pollTimer.current) return;
+      clearInterval(pollTimer.current);
+      pollTimer.current = null;
+    }
+    if (broadcast?.status === 'sending') {
+      if (!pollTimer.current) {
+        pollTimer.current = setInterval(fetchData, POLL_INTERVAL_MS);
+      }
+    } else {
+      stopPolling();
+    }
+    return stopPolling;
+  }, [broadcast?.status, fetchData]);
 
   const filteredRecipients = useMemo(
     () =>
@@ -206,18 +158,14 @@ export default function BroadcastDetailPage() {
       t('table.phone'),
       t('table.status'),
       t('table.sent'),
-      t('table.delivered'),
-      t('table.read'),
       t('table.error'),
     ];
     const rows = recipients.map((r) => [
       r.contact?.name ?? '',
       r.contact?.phone ?? '',
       r.status,
-      r.sent_at ?? '',
-      r.delivered_at ?? '',
-      r.read_at ?? '',
-      r.error_message ?? '',
+      r.sentAt ?? '',
+      r.errorMessage ?? '',
     ]);
     const csv = toCsv([header, ...rows]);
     const safeName = broadcast.name.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
@@ -226,22 +174,36 @@ export default function BroadcastDetailPage() {
 
   async function handleDelete() {
     setDeleting(true);
-    const supabase = createClient();
-    // broadcast_recipients cascades on broadcasts.id (migration 001), so a
-    // single delete is sufficient — the aggregate trigger in migration 003
-    // is defined on broadcast_recipients but fires only on its own row
-    // changes, not on a cascaded drop of the parent row.
-    const { error: delErr } = await supabase
-      .from('broadcasts')
-      .delete()
-      .eq('id', broadcastId);
-    setDeleting(false);
-    if (delErr) {
-      toast.error(t('toastFailedDelete', { error: delErr.message }));
-      return;
+    try {
+      const res = await fetch(`/api/broadcasts/${broadcastId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to delete');
+      toast.success(t('toastDeleted'));
+      router.push('/broadcasts');
+    } catch (err) {
+      toast.error(
+        t('toastFailedDelete', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }),
+      );
+    } finally {
+      setDeleting(false);
     }
-    toast.success(t('toastDeleted'));
-    router.push('/broadcasts');
+  }
+
+  async function handleSend() {
+    setSending(true);
+    try {
+      const res = await fetch(`/api/broadcasts/${broadcastId}/send`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to start send');
+      toast.success(t('toastSendStarted'));
+      await fetchData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to start send');
+    } finally {
+      setSending(false);
+    }
   }
 
   if (loading) {
@@ -264,13 +226,7 @@ export default function BroadcastDetailPage() {
   }
 
   const status = getBroadcastStatus(broadcast.status);
-
-  const funnelSteps: FunnelStep[] = [
-    { label: t('stats.sent'), value: broadcast.sent_count, color: 'bg-primary' },
-    { label: t('stats.delivered'), value: broadcast.delivered_count, color: 'bg-teal-500' },
-    { label: t('stats.read'), value: broadcast.read_count, color: 'bg-blue-500' },
-    { label: t('stats.replied'), value: broadcast.replied_count, color: 'bg-indigo-500' },
-  ];
+  const canSend = broadcast.status === 'draft' || broadcast.status === 'failed';
 
   return (
     <div className="space-y-6">
@@ -295,106 +251,112 @@ export default function BroadcastDetailPage() {
               </span>
             </div>
             <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
-              <span>{t('template', { name: broadcast.template_name })}</span>
-              <span>-</span>
               <span>
-                {t('createdAt', { date: new Date(broadcast.created_at).toLocaleDateString() })}
+                {t('createdAt', { date: new Date(broadcast.createdAt).toLocaleDateString() })}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Delete — inline-confirm pattern matches the pipeline-settings
-            "Delete Pipeline" flow. Mid-send broadcasts can't be deleted
-            because orphaning in-flight Meta messages would leave the
-            funnel inconsistent. */}
-        {confirmDelete ? (
-          <div className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm">
-            <span className="text-red-300">{t('deletePrompt')}</span>
+        <div className="flex items-center gap-2">
+          {canSend && (
+            <Button
+              size="sm"
+              onClick={handleSend}
+              disabled={sending}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {sending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+              {t('sendNow')}
+            </Button>
+          )}
+
+          {confirmDelete ? (
+            <div className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm">
+              <span className="text-red-300">{t('deletePrompt')}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
+                className="h-7 border-border bg-transparent text-muted-foreground hover:bg-muted"
+              >
+                {t('cancel')}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="h-7 bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? t('deleting') : t('confirm')}
+              </Button>
+            </div>
+          ) : (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setConfirmDelete(false)}
-              disabled={deleting}
-              className="h-7 border-border bg-transparent text-muted-foreground hover:bg-muted"
+              disabled={broadcast.status !== 'draft'}
+              onClick={() => setConfirmDelete(true)}
+              title={broadcast.status !== 'draft' ? t('cannotDeleteSending') : t('deleteHover')}
+              className="border-red-500/30 bg-transparent text-red-400 hover:bg-red-500/10 disabled:opacity-40"
             >
-              {t('cancel')}
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('delete')}
             </Button>
-            <Button
-              size="sm"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="h-7 bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-            >
-              {deleting ? t('deleting') : t('confirm')}
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={broadcast.status === 'sending'}
-            onClick={() => setConfirmDelete(true)}
-            title={
-              broadcast.status === 'sending'
-                ? t('cannotDeleteSending')
-                : t('deleteHover')
-            }
-            className="border-red-500/30 bg-transparent text-red-400 hover:bg-red-500/10 disabled:opacity-40"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {t('delete')}
-          </Button>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Stats — 6 cards: Total / Sent / Delivered / Read / Replied / Failed */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      {/* Message preview */}
+      <div className="rounded-xl border border-border bg-card/50 p-4">
+        <p className="mb-2 text-sm font-medium text-foreground">{t('message')}</p>
+        {broadcast.mediaUrl && (
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <ImageIcon className="h-3.5 w-3.5" />
+            <a
+              href={broadcast.mediaUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="truncate text-primary hover:underline"
+            >
+              {broadcast.mediaUrl}
+            </a>
+          </div>
+        )}
+        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+          {broadcast.contentText}
+        </p>
+      </div>
+
+      {/* Stats — Total / Sent / Failed */}
+      <div className="grid grid-cols-3 gap-3">
         <StatCard
           label={t('stats.totalRecipients')}
-          value={broadcast.total_recipients}
-          total={broadcast.total_recipients}
+          value={broadcast.totalRecipients}
+          total={broadcast.totalRecipients}
           icon={<Users className="h-4 w-4" />}
           color="bg-muted text-muted-foreground"
         />
         <StatCard
           label={t('stats.sent')}
-          value={broadcast.sent_count}
-          total={broadcast.total_recipients}
+          value={broadcast.sentCount}
+          total={broadcast.totalRecipients}
           icon={<Send className="h-4 w-4" />}
           color="bg-primary/10 text-primary"
         />
         <StatCard
-          label={t('stats.delivered')}
-          value={broadcast.delivered_count}
-          total={broadcast.total_recipients}
-          icon={<CheckCheck className="h-4 w-4" />}
-          color="bg-teal-500/10 text-teal-400"
-        />
-        <StatCard
-          label={t('stats.read')}
-          value={broadcast.read_count}
-          total={broadcast.total_recipients}
-          icon={<Eye className="h-4 w-4" />}
-          color="bg-blue-500/10 text-blue-400"
-        />
-        <StatCard
-          label={t('stats.replied')}
-          value={broadcast.replied_count}
-          total={broadcast.total_recipients}
-          icon={<MessageCircle className="h-4 w-4" />}
-          color="bg-indigo-500/10 text-indigo-400"
-        />
-        <StatCard
           label={t('stats.failed')}
-          value={broadcast.failed_count}
-          total={broadcast.total_recipients}
+          value={broadcast.failedCount}
+          total={broadcast.totalRecipients}
           icon={<AlertCircle className="h-4 w-4" />}
           color="bg-red-500/10 text-red-400"
         />
       </div>
-
-      <FunnelChart steps={funnelSteps} />
 
       {/* Recipients Table */}
       <div className="rounded-xl border border-border bg-card">
@@ -424,9 +386,7 @@ export default function BroadcastDetailPage() {
               <DropdownMenuContent className="border-border bg-popover">
                 <DropdownMenuItem
                   onClick={() => setStatusFilter('all')}
-                  className={
-                    statusFilter === 'all' ? 'text-primary' : 'text-popover-foreground'
-                  }
+                  className={statusFilter === 'all' ? 'text-primary' : 'text-popover-foreground'}
                 >
                   {t('allStatuses')}
                 </DropdownMenuItem>
@@ -434,11 +394,7 @@ export default function BroadcastDetailPage() {
                   <DropdownMenuItem
                     key={s}
                     onClick={() => setStatusFilter(s)}
-                    className={
-                      statusFilter === s
-                        ? 'text-primary'
-                        : 'text-popover-foreground'
-                    }
+                    className={statusFilter === s ? 'text-primary' : 'text-popover-foreground'}
                   >
                     {tStatus(getRecipientStatus(s).label)}
                   </DropdownMenuItem>
@@ -462,9 +418,7 @@ export default function BroadcastDetailPage() {
         {filteredRecipients.length === 0 ? (
           <div className="flex h-32 items-center justify-center">
             <p className="text-sm text-muted-foreground">
-              {recipients.length === 0
-                ? t('noRecipients')
-                : t('noRecipientsFilter')}
+              {recipients.length === 0 ? t('noRecipients') : t('noRecipientsFilter')}
             </p>
           </div>
         ) : (
@@ -476,8 +430,6 @@ export default function BroadcastDetailPage() {
                   <TableHead className="text-muted-foreground">{t('table.phone')}</TableHead>
                   <TableHead className="text-muted-foreground">{t('table.status')}</TableHead>
                   <TableHead className="text-muted-foreground">{t('table.sent')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.delivered')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.read')}</TableHead>
                   <TableHead className="text-muted-foreground">{t('table.error')}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -500,22 +452,10 @@ export default function BroadcastDetailPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {recipient.sent_at
-                          ? new Date(recipient.sent_at).toLocaleString()
-                          : '-'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {recipient.delivered_at
-                          ? new Date(recipient.delivered_at).toLocaleString()
-                          : '-'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {recipient.read_at
-                          ? new Date(recipient.read_at).toLocaleString()
-                          : '-'}
+                        {recipient.sentAt ? new Date(recipient.sentAt).toLocaleString() : '-'}
                       </TableCell>
                       <TableCell className="max-w-xs truncate text-xs text-red-400">
-                        {recipient.error_message ?? '-'}
+                        {recipient.errorMessage ?? '-'}
                       </TableCell>
                     </TableRow>
                   );

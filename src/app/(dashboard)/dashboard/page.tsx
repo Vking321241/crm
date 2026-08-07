@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
 import { formatCurrency } from '@/lib/currency'
 import {
@@ -11,13 +10,6 @@ import {
   Send,
 } from 'lucide-react'
 
-import {
-  loadActivity,
-  loadConversationsSeries,
-  loadMetrics,
-  loadPipelineDonut,
-  loadResponseTime,
-} from '@/lib/dashboard/queries'
 import type {
   ActivityItem,
   ConversationsSeriesPoint,
@@ -64,40 +56,40 @@ export default function DashboardPage() {
   const [activity, setActivity] = useState<ActivityItem[] | null>(null)
   const [activityLoading, setActivityLoading] = useState(true)
 
-  const loadAll = useCallback(() => {
-    const db = createClient()
-
-    // Kick everything off in parallel. Each block has its own
-    // setState + finally so a slow query doesn't hold up faster
-    // sections — each widget shows its own skeleton independently.
-    void loadMetrics(db)
-      .then((m) => setMetrics(m))
-      .catch((err) => console.error('[dashboard] metrics failed:', err))
-      .finally(() => setMetricsLoading(false))
-
-    void loadConversationsSeries(db, 30)
-      .then((s) => setSeries((prev) => ({ ...prev, 30: s })))
-      .catch((err) => console.error('[dashboard] series failed:', err))
-      .finally(() => setSeriesLoading(false))
-
-    void loadPipelineDonut(db)
-      .then((p) => setPipeline(p))
-      .catch((err) => console.error('[dashboard] pipeline failed:', err))
-      .finally(() => setPipelineLoading(false))
-
-    void loadResponseTime(db)
-      .then((r) => setResponseTime(r))
-      .catch((err) => console.error('[dashboard] response time failed:', err))
-      .finally(() => setResponseTimeLoading(false))
-
-    // Fetch up to 50 so the biggest page-size option in the feed
-    // (50 rows) is already in memory — switching sizes then becomes
-    // a pure client-side slice with no extra round trip.
-    void loadActivity(db, 50)
-      .then((a) => setActivity(a))
-      .catch((err) => console.error('[dashboard] activity failed:', err))
-      .finally(() => setActivityLoading(false))
+  // Single aggregated endpoint (src/app/api/dashboard/route.ts) —
+  // replaces five parallel client-side Supabase calls now that
+  // there's no RLS to scope them automatically.
+  const fetchDashboard = useCallback((rangeDays: number) => {
+    return fetch(`/api/dashboard?rangeDays=${rangeDays}`).then((res) => {
+      if (!res.ok) throw new Error('dashboard fetch failed');
+      return res.json() as Promise<{
+        metrics: MetricsBundle
+        conversationsSeries: ConversationsSeriesPoint[]
+        pipelineDonut: PipelineDonutData
+        responseTime: ResponseTimeSummary
+        activity: ActivityItem[]
+      }>
+    })
   }, [])
+
+  const loadAll = useCallback(() => {
+    void fetchDashboard(30)
+      .then((data) => {
+        setMetrics(data.metrics)
+        setSeries((prev) => ({ ...prev, 30: data.conversationsSeries }))
+        setPipeline(data.pipelineDonut)
+        setResponseTime(data.responseTime)
+        setActivity(data.activity)
+      })
+      .catch((err) => console.error('[dashboard] load failed:', err))
+      .finally(() => {
+        setMetricsLoading(false)
+        setSeriesLoading(false)
+        setPipelineLoading(false)
+        setResponseTimeLoading(false)
+        setActivityLoading(false)
+      })
+  }, [fetchDashboard])
 
   useEffect(() => {
     loadAll()
@@ -112,13 +104,12 @@ export default function DashboardPage() {
       setRange(r)
       if (series[r] !== null) return
       setSeriesLoading(true)
-      const db = createClient()
-      loadConversationsSeries(db, r)
-        .then((s) => setSeries((prev) => ({ ...prev, [r]: s })))
+      fetchDashboard(r)
+        .then((data) => setSeries((prev) => ({ ...prev, [r]: data.conversationsSeries })))
         .catch((err) => console.error('[dashboard] series failed:', err))
         .finally(() => setSeriesLoading(false))
     },
-    [series],
+    [series, fetchDashboard],
   )
 
   return (

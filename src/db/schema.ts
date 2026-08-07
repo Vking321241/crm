@@ -236,6 +236,53 @@ export const notificationTypeEnum = pgEnum("notification_type", ["conversation_a
 
 export const presenceStatusEnum = pgEnum("presence_status", ["online", "away"]);
 
+const DEFAULT_WELCOME_MESSAGE =
+  "Olá! 👋 Obrigado por entrar em contato. Em instantes um de nossos atendentes vai te responder.";
+const DEFAULT_AFTER_HOURS_MESSAGE =
+  "No momento estamos fora do horário de atendimento. Deixe sua mensagem que responderemos assim que possível!";
+const DEFAULT_AWAY_MESSAGE =
+  "Estamos temporariamente fora do ar. Assim que retornarmos, respondemos sua mensagem.";
+
+/**
+ * Default weekly business-hours grid: Mon–Fri 09:00–18:00, Sat/Sun
+ * closed. `start`/`end` are "HH:mm" (24h, account's local time —
+ * this app has no per-account timezone field yet, so it's read as
+ * the server's TZ). Shape mirrors what the settings UI edits
+ * directly, so no separate parsing layer is needed.
+ */
+export const DEFAULT_BUSINESS_HOURS = {
+  mon: { enabled: true, start: "09:00", end: "18:00" },
+  tue: { enabled: true, start: "09:00", end: "18:00" },
+  wed: { enabled: true, start: "09:00", end: "18:00" },
+  thu: { enabled: true, start: "09:00", end: "18:00" },
+  fri: { enabled: true, start: "09:00", end: "18:00" },
+  sat: { enabled: false, start: "09:00", end: "13:00" },
+  sun: { enabled: false, start: "09:00", end: "13:00" },
+};
+
+// ------------------------------------------------------------
+// auto_reply_settings — one row per account, rule-based (no AI)
+// automated replies: welcome message for first-ever contact,
+// after-hours message based on a weekly schedule, and a manual
+// "away" override (vacation/closure) that takes priority over both.
+// Sending is throttled per-conversation via
+// `conversations.lastAutoReplyAt` (see the webhook handler) so a
+// customer texting repeatedly doesn't get spammed.
+// ------------------------------------------------------------
+export const autoReplySettings = pgTable("auto_reply_settings", {
+  accountId: uuid("account_id")
+    .primaryKey()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  welcomeEnabled: boolean("welcome_enabled").notNull().default(true),
+  welcomeMessage: text("welcome_message").notNull().default(DEFAULT_WELCOME_MESSAGE),
+  afterHoursEnabled: boolean("after_hours_enabled").notNull().default(true),
+  afterHoursMessage: text("after_hours_message").notNull().default(DEFAULT_AFTER_HOURS_MESSAGE),
+  businessHours: jsonb("business_hours").notNull().default(DEFAULT_BUSINESS_HOURS),
+  awayEnabled: boolean("away_enabled").notNull().default(false),
+  awayMessage: text("away_message").notNull().default(DEFAULT_AWAY_MESSAGE),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ------------------------------------------------------------
 // contacts — `phoneNormalized` is a STORED generated column, kept
 // in lockstep with `phone` by Postgres (mirrors normalizePhone()).
@@ -375,6 +422,11 @@ export const conversations = pgTable(
     lastMessageText: text("last_message_text"),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
     unreadCount: integer("unread_count").notNull().default(0),
+    // Throttle for rule-based auto-replies (welcome/after-hours/away) —
+    // at most one automated message per conversation per
+    // AUTO_REPLY_THROTTLE_HOURS window, so a customer sending several
+    // messages in a row doesn't get the same auto-reply repeated.
+    lastAutoReplyAt: timestamp("last_auto_reply_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
