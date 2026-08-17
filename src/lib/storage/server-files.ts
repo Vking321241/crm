@@ -147,32 +147,56 @@ export async function saveInboundMedia(opts: {
   }
 
   if (sourceUrl) {
-    try {
-      const res = await fetch(sourceUrl, {
-        headers: opts.instanceToken ? { token: opts.instanceToken } : undefined,
-      });
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const bytes = Buffer.from(arrayBuffer);
-        if (bytes.length > 0) {
-          const fetchedType = res.headers.get("content-type") || contentType;
-          return await writeAccountFile(accountId, bytes, fetchedType, sourceUrl);
+    // Try once with the instance token as a raw `token` header (the
+    // convention every other UAZAPI call in this app uses — see
+    // src/lib/whatsapp/uazapi-client.ts `request()`), then once with
+    // no auth header at all, in case the media URL is actually a
+    // public/presigned link and the unexpected header is what's
+    // rejecting the request. Whichever succeeds wins; both attempts
+    // are logged with enough detail (status/error, header used) that
+    // a real failure can be diagnosed from server logs without
+    // guessing a third time.
+    const attempts: { label: string; headers?: Record<string, string> }[] = [
+      ...(opts.instanceToken ? [{ label: "with token header", headers: { token: opts.instanceToken } }] : []),
+      { label: "no auth header", headers: undefined },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const res = await fetch(sourceUrl, { headers: attempt.headers });
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          const bytes = Buffer.from(arrayBuffer);
+          if (bytes.length > 0) {
+            const fetchedType = res.headers.get("content-type") || contentType;
+            return await writeAccountFile(accountId, bytes, fetchedType, sourceUrl);
+          }
+          console.error(`[saveInboundMedia] fetched 0 bytes (${attempt.label}) from`, sourceUrl);
+        } else {
+          console.error(
+            `[saveInboundMedia] fetch non-ok status ${res.status} (${attempt.label}) for`,
+            sourceUrl,
+          );
         }
-        console.error("[saveInboundMedia] fetched 0 bytes from", sourceUrl);
-      } else {
-        console.error(
-          "[saveInboundMedia] fetch non-ok status",
-          res.status,
-          "for",
-          sourceUrl,
-        );
+      } catch (err) {
+        console.error(`[saveInboundMedia] fetch failed (${attempt.label}) for`, sourceUrl, "—", err);
       }
-    } catch (err) {
-      console.error("[saveInboundMedia] fetch failed:", err);
     }
+  } else {
+    console.error(
+      "[saveInboundMedia] no sourceUrl and no usable sourceBase64 — nothing to re-host for account",
+      accountId,
+    );
   }
 
   // Last resort — keep whatever UAZAPI gave us so the message isn't
-  // silently dropped, even if it may not render.
+  // silently dropped, even if it may not render. Flagged loudly since
+  // this is the state that produces a broken-media bubble in the UI.
+  if (sourceUrl) {
+    console.error(
+      "[saveInboundMedia] re-host failed both ways — falling back to raw sourceUrl, which the browser likely can't load either:",
+      sourceUrl,
+    );
+  }
   return sourceUrl;
 }

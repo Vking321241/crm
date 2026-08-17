@@ -386,6 +386,58 @@ export function MessageComposer({
     [readOnly, busy, draft, stageUpload],
   );
 
+  // Drag a file in from the desktop — same staging path as paste/the
+  // attach menu, just keyed off the file's own mime type instead of
+  // being image-only like paste (a dropped file could be anything).
+  const [dragOver, setDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  const kindForFile = useCallback((file: File): ComposerMediaKind => {
+    if (file.type.startsWith("image/")) return "image";
+    if (file.type.startsWith("video/")) return "video";
+    if (file.type.startsWith("audio/")) return "audio";
+    return "document";
+  }, []);
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent) => {
+      if (readOnly || busy || draft) return;
+      if (!e.dataTransfer.types.includes("Files")) return;
+      e.preventDefault();
+      dragCounterRef.current += 1;
+      setDragOver(true);
+    },
+    [readOnly, busy, draft],
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (readOnly || busy || draft) return;
+      if (!e.dataTransfer.types.includes("Files")) return;
+      e.preventDefault();
+    },
+    [readOnly, busy, draft],
+  );
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      dragCounterRef.current = 0;
+      setDragOver(false);
+      if (readOnly || busy || draft) return;
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      e.preventDefault();
+      void stageUpload(kindForFile(file), file);
+    },
+    [readOnly, busy, draft, kindForFile, stageUpload],
+  );
+
   // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
 
   const finalizeRecording = useCallback(
@@ -494,7 +546,18 @@ export function MessageComposer({
   // ---- Render --------------------------------------------------------
 
   return (
-    <div className="border-t border-border bg-card p-3">
+    <div
+      className="relative border-t border-border bg-card p-3"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-t-xl border-2 border-dashed border-primary bg-primary/10">
+          <p className="text-sm font-medium text-primary">{t("dropToAttach")}</p>
+        </div>
+      )}
       {replyTo && (
         <div className="mb-2">
           <ReplyQuote
