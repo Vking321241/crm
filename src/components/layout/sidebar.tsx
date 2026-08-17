@@ -95,7 +95,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, module: "reports" },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare, module: "inbox" },
   { href: "/tasks", labelKey: "tasks", icon: CalendarClock, module: "tasks" },
   { href: "/internal-chat", labelKey: "internalChat", icon: MessageCircle, module: "internal_chat" },

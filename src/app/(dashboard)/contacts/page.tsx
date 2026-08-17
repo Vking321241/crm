@@ -53,6 +53,7 @@ import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import { useCan } from '@/hooks/use-can';
+import { useAuth } from '@/hooks/use-auth';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 import type { Contact, Tag } from '@/components/contacts/types';
@@ -63,6 +64,7 @@ export default function ContactsPage() {
   const t = useTranslations('Contacts.page');
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
+  const { hasPermission, profileLoading: permissionsLoading } = useAuth();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -250,6 +252,17 @@ export default function ContactsPage() {
 
   const tagsMap: Record<string, Tag> = {};
   for (const tag of allTags) tagsMap[tag.id] = tag;
+
+  if (!permissionsLoading && !hasPermission('contacts')) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <p className="text-sm text-muted-foreground">
+          Você não tem acesso aos contatos. Peça a um administrador para liberar em
+          Configurações → Permissões.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

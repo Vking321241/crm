@@ -1001,6 +1001,12 @@ export const internalChannelMembers = pgTable(
   ],
 );
 
+export const internalMessageKindEnum = pgEnum("internal_message_kind", [
+  "text",
+  "image",
+  "audio",
+]);
+
 export const internalMessages = pgTable(
   "internal_messages",
   {
@@ -1009,6 +1015,7 @@ export const internalMessages = pgTable(
       .notNull()
       .references(() => internalChannels.id, { onDelete: "cascade" }),
     senderId: uuid("sender_id").references(() => users.id, { onDelete: "set null" }),
+    kind: internalMessageKindEnum("kind").notNull().default("text"),
     contentText: text("content_text"),
     mediaUrl: text("media_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

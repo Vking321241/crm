@@ -98,12 +98,19 @@ export async function GET() {
           ? members.find((mm) => mm.user_id !== ctx.userId)
           : undefined;
         const lastMessage = lastMessageByChannel.get(m.channel.id);
+        const lastMessagePreview =
+          lastMessage?.kind === "image"
+            ? "📷 Imagem"
+            : lastMessage?.kind === "audio"
+              ? "🎤 Áudio"
+              : (lastMessage?.contentText ?? undefined);
         return {
           ...toApiChannel(m.channel),
           display_name: m.channel.isDirect ? (otherMember?.full_name ?? "Direto") : m.channel.name,
           members,
-          last_message_text: lastMessage?.contentText ?? undefined,
+          last_message_text: lastMessagePreview,
           last_message_at: lastMessage?.createdAt ?? undefined,
+          last_message_sender_id: lastMessage?.senderId ?? undefined,
           unread_count: unreadByChannel.get(m.channel.id) ?? 0,
         };
       })

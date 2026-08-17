@@ -36,11 +36,11 @@ export default function NotificationsPage() {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/notifications?limit=100", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load notifications");
+      if (!res.ok) throw new Error("Falha ao carregar notificações");
       const data = (await res.json()) as { notifications: NotificationRow[] };
       setNotifications(data.notifications);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load notifications");
+      setError(err instanceof Error ? err.message : "Falha ao carregar notificações");
     }
   }, []);
 
@@ -57,7 +57,7 @@ export default function NotificationsPage() {
         prev,
     );
     const res = await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
-    if (!res.ok) toast.error("Failed to mark notification as read");
+    if (!res.ok) toast.error("Falha ao marcar como lida");
   }, []);
 
   const handleClick = useCallback(
@@ -80,7 +80,7 @@ export default function NotificationsPage() {
     const res = await fetch("/api/notifications/read-all", { method: "POST" });
     setMarkingAll(false);
     if (!res.ok) {
-      toast.error("Failed to mark all as read");
+      toast.error("Falha ao marcar todas como lidas");
       void load();
     }
   }, [unreadIds.length, load]);
@@ -90,7 +90,7 @@ export default function NotificationsPage() {
       <div className="flex h-64 flex-col items-center justify-center gap-2">
         <p className="text-sm text-destructive">{error}</p>
         <Button variant="outline" onClick={() => window.location.reload()}>
-          Retry
+          Tentar novamente
         </Button>
       </div>
     );
@@ -108,9 +108,9 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Notifications</h1>
+          <h1 className="text-2xl font-bold text-foreground">Notificações</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Conversations other teammates assign to you show up here.
+            Conversas que outros colegas atribuem a você aparecem aqui.
           </p>
         </div>
         <Button
@@ -124,7 +124,7 @@ export default function NotificationsPage() {
           ) : (
             <CheckCheck className="h-4 w-4" />
           )}
-          Mark all as read
+          Marcar todas como lidas
         </Button>
       </div>
 
@@ -133,9 +133,9 @@ export default function NotificationsPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
             <Bell className="h-6 w-6 text-primary" />
           </div>
-          <p className="mt-3 text-sm font-medium text-foreground">No notifications yet</p>
+          <p className="mt-3 text-sm font-medium text-foreground">Nenhuma notificação ainda</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            You&apos;ll see an alert here when someone assigns you a conversation.
+            Você verá um alerta aqui quando alguém atribuir uma conversa a você.
           </p>
         </div>
       ) : (

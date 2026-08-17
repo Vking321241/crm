@@ -1,0 +1,2 @@
+CREATE TYPE "public"."internal_message_kind" AS ENUM('text', 'image', 'audio');--> statement-breakpoint
+ALTER TABLE "internal_messages" ADD COLUMN "kind" "internal_message_kind" DEFAULT 'text' NOT NULL;

@@ -4,7 +4,10 @@
 //      channel list's unread badge clears — mirrors how opening an
 //      inbox thread resets its unread_count.
 // POST /api/internal-chat/channels/[id]/messages — send a team-only
-//      message. Body: { contentText }.
+//      message. Body: { contentText } for text, or { kind: "image"|
+//      "audio", mediaUrl, contentText? } for an attachment (uploaded
+//      client-side first via POST /api/files, same as the inbox
+//      composer — this route just records the resulting URL).
 // Both require membership in the channel AND the "internal_chat"
 // permission module.
 // ============================================================
@@ -76,15 +79,30 @@ export async function POST(
       return NextResponse.json({ error: "Channel not found" }, { status: 404 });
     }
 
-    const body = (await request.json().catch(() => null)) as { contentText?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as
+      | { contentText?: unknown; mediaUrl?: unknown; kind?: unknown }
+      | null;
+
+    const kind = body?.kind === "image" || body?.kind === "audio" ? body.kind : "text";
     const contentText = typeof body?.contentText === "string" ? body.contentText.trim() : "";
-    if (!contentText) {
+    const mediaUrl = typeof body?.mediaUrl === "string" ? body.mediaUrl.trim() : "";
+
+    if (kind === "text" && !contentText) {
       return NextResponse.json({ error: "'contentText' is required" }, { status: 400 });
+    }
+    if (kind !== "text" && !mediaUrl) {
+      return NextResponse.json({ error: "'mediaUrl' is required" }, { status: 400 });
     }
 
     const [row] = await ctx.db
       .insert(internalMessages)
-      .values({ channelId: id, senderId: ctx.userId, contentText })
+      .values({
+        channelId: id,
+        senderId: ctx.userId,
+        kind,
+        contentText: contentText || null,
+        mediaUrl: mediaUrl || null,
+      })
       .returning();
 
     await ctx.db

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Radio, Plus, Loader2 } from 'lucide-react';
 import { useCan } from '@/hooks/use-can';
+import { useAuth } from '@/hooks/use-auth';
 import { GatedButton } from '@/components/ui/gated-button';
 import { getBroadcastStatus } from '@/lib/broadcast-status';
 import { useTranslations } from 'next-intl';
@@ -26,6 +27,7 @@ export default function BroadcastsPage() {
   const t = useTranslations('Broadcasts.page');
   const tStatus = useTranslations('Broadcasts.status');
   const canCreate = useCan('send-messages');
+  const { hasPermission, profileLoading: permissionsLoading } = useAuth();
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +104,17 @@ export default function BroadcastsPage() {
         <Button variant="outline" onClick={() => window.location.reload()}>
           {t('retry')}
         </Button>
+      </div>
+    );
+  }
+
+  if (!permissionsLoading && !hasPermission('broadcasts')) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <p className="text-sm text-muted-foreground">
+          Você não tem acesso a disparos em massa. Peça a um administrador para liberar em
+          Configurações → Permissões.
+        </p>
       </div>
     );
   }

@@ -19,6 +19,7 @@ export function toApiInternalMessage(row: MessageRow) {
     id: row.id,
     channel_id: row.channelId,
     sender_id: row.senderId ?? undefined,
+    kind: row.kind,
     content_text: row.contentText ?? undefined,
     media_url: row.mediaUrl ?? undefined,
     created_at: row.createdAt,

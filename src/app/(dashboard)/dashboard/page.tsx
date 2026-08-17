@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/use-auth'
 import { formatCurrency } from '@/lib/currency'
 import {
@@ -32,7 +33,17 @@ type RangeDays = 7 | 30 | 90
 
 export default function DashboardPage() {
   const t = useTranslations('Dashboard.page')
-  const { defaultCurrency } = useAuth()
+  const router = useRouter()
+  const { defaultCurrency, hasPermission, profileLoading } = useAuth()
+
+  // A member with no 'reports' access shouldn't land on a dead-end —
+  // bounce them to the first screen they actually have (inbox is the
+  // most common baseline grant). Falls through to the blocked message
+  // below only if they truly have nothing.
+  useEffect(() => {
+    if (profileLoading || hasPermission('reports')) return
+    if (hasPermission('inbox')) router.replace('/inbox')
+  }, [profileLoading, hasPermission, router])
   const [metrics, setMetrics] = useState<MetricsBundle | null>(null)
   const [metricsLoading, setMetricsLoading] = useState(true)
 
@@ -111,6 +122,17 @@ export default function DashboardPage() {
     },
     [series, fetchDashboard],
   )
+
+  if (!profileLoading && !hasPermission('reports')) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <p className="text-sm text-muted-foreground">
+          Você não tem acesso ao painel. Peça a um administrador para liberar em Configurações →
+          Permissões.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5">

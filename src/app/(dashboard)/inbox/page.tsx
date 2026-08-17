@@ -8,6 +8,7 @@ import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -17,6 +18,7 @@ export default function InboxPage() {
   useTranslations("Inbox.page");
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { hasPermission, profileLoading } = useAuth();
   // `?c=<id>` deep-link support (e.g. from the dashboard's recent-
   // conversations list) — read once via the lazy initializer so it's
   // captured on first render, not re-read as a ref during render.
@@ -79,6 +81,17 @@ export default function InboxPage() {
   // thread — rather than cramming both side-by-side.
   const hasActiveConv = !!activeConversationId;
   const activeContact = activeConversation?.contact ?? null;
+
+  if (!profileLoading && !hasPermission('inbox')) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <p className="text-sm text-muted-foreground">
+          Você não tem acesso à Central de Atendimento. Peça a um administrador para liberar em
+          Configurações → Permissões.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
