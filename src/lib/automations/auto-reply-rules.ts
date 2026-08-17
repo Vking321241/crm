@@ -10,6 +10,11 @@ export interface BusinessHoursDay {
   enabled: boolean;
   start: string; // "HH:mm"
   end: string; // "HH:mm"
+  /** Optional lunch break — e.g. 12:00–13:00 counts as CLOSED even
+   *  though it falls between `start` and `end`. Both fields must be
+   *  set for the break to apply; omit either to skip it. */
+  breakStart?: string;
+  breakEnd?: string;
 }
 
 export type BusinessHours = Record<
@@ -40,7 +45,17 @@ export function isWithinBusinessHours(hours: BusinessHours, now: Date): boolean 
   const minutesStart = startH * 60 + startM;
   const minutesEnd = endH * 60 + endM;
 
-  return minutesNow >= minutesStart && minutesNow < minutesEnd;
+  if (minutesNow < minutesStart || minutesNow >= minutesEnd) return false;
+
+  if (day.breakStart && day.breakEnd) {
+    const [breakStartH, breakStartM] = day.breakStart.split(":").map(Number);
+    const [breakEndH, breakEndM] = day.breakEnd.split(":").map(Number);
+    const minutesBreakStart = breakStartH * 60 + breakStartM;
+    const minutesBreakEnd = breakEndH * 60 + breakEndM;
+    if (minutesNow >= minutesBreakStart && minutesNow < minutesBreakEnd) return false;
+  }
+
+  return true;
 }
 
 export type AutoReplyType = "away" | "welcome" | "after_hours";

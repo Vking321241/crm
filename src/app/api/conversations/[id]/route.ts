@@ -1,6 +1,7 @@
 // ============================================================
 // GET   /api/conversations/[id]   — detail (any member).
-// PATCH /api/conversations/[id]   — update status / assignment
+// PATCH /api/conversations/[id]   — update status / assignment /
+//                                    acknowledgment / manual pause
 //                                    (agent+).
 //
 // Replaces the old `notify_conversation_assigned` Postgres trigger
@@ -9,6 +10,12 @@
 // the caller, we insert a `notifications` row here instead. A
 // failure to write the notification never fails the assignment
 // itself — it's only logged.
+//
+// Transfers (agent reassignment or department change) also write a
+// `conversation_transfers` audit row and flip `needs_acknowledgment`
+// so the new assignee gets the "iniciar atendimento / apenas
+// visualizar" pop-up the next time they open the conversation — see
+// src/components/inbox/acknowledgment-modal.tsx.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -17,6 +24,7 @@ import { and, eq } from "drizzle-orm";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import {
   conversations,
+  conversationTransfers,
   contacts,
   conversationStatusEnum,
   notifications,
@@ -65,7 +73,13 @@ export async function PATCH(
     }
 
     const body = (await request.json().catch(() => null)) as
-      | { status?: unknown; assigned_agent_id?: unknown; department_id?: unknown }
+      | {
+          status?: unknown;
+          assigned_agent_id?: unknown;
+          department_id?: unknown;
+          acknowledge?: unknown;
+          paused?: unknown;
+        }
       | null;
     if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
@@ -85,6 +99,7 @@ export async function PATCH(
     // (unless the same request also sets assigned_agent_id) so the
     // conversation lands in that department's shared queue rather
     // than staying with whoever had it before.
+    let departmentChanged = false;
     if ("department_id" in body) {
       const next = body.department_id;
       if (next !== null && typeof next !== "string") {
@@ -94,7 +109,8 @@ export async function PATCH(
         );
       }
       update.departmentId = next;
-      if (!("assigned_agent_id" in body) && next !== existing.departmentId) {
+      departmentChanged = next !== existing.departmentId;
+      if (!("assigned_agent_id" in body) && departmentChanged) {
         update.assignedAgentId = null;
       }
     }
@@ -112,6 +128,28 @@ export async function PATCH(
       assignmentChanged = next !== null && next !== existing.assignedAgentId;
     }
 
+    // A hand-off (new agent, or department transfer that clears the
+    // assignee) needs the receiving agent's acknowledgment before it
+    // "starts" for them — see AcknowledgmentModal. Plain re-fetches
+    // (same agent, no real change) never touch this flag.
+    if (assignmentChanged || (departmentChanged && update.assignedAgentId === null)) {
+      update.needsAcknowledgment = true;
+      update.acknowledgmentReason = "transferred";
+    }
+
+    if ("acknowledge" in body && body.acknowledge === true) {
+      update.needsAcknowledgment = false;
+      update.acknowledgmentReason = null;
+    }
+
+    if ("paused" in body) {
+      if (typeof body.paused !== "boolean") {
+        return NextResponse.json({ error: "paused must be a boolean" }, { status: 400 });
+      }
+      update.pausedAt = body.paused ? new Date() : null;
+      update.pauseReason = body.paused ? "manual" : null;
+    }
+
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ conversation: toApiConversation(existing) });
     }
@@ -123,6 +161,24 @@ export async function PATCH(
       .set(update)
       .where(and(eq(conversations.id, id), eq(conversations.accountId, ctx.accountId)))
       .returning();
+
+    // Audit trail — who handed this to whom. Never blocks the actual
+    // update on failure.
+    if (assignmentChanged || departmentChanged) {
+      try {
+        await ctx.db.insert(conversationTransfers).values({
+          accountId: ctx.accountId,
+          conversationId: id,
+          fromAgentId: existing.assignedAgentId,
+          toAgentId: updated.assignedAgentId,
+          fromDepartmentId: existing.departmentId,
+          toDepartmentId: updated.departmentId,
+          transferredBy: ctx.userId,
+        });
+      } catch (err) {
+        console.error("[PATCH /api/conversations/[id]] transfer log insert failed:", err);
+      }
+    }
 
     // Fire-and-forget-ish: assignment changed to a different agent than
     // the caller → notify them. Never let a notification failure fail

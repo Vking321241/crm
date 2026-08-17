@@ -19,6 +19,7 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { ResponseTimeChart } from "@/components/dashboard/response-time-chart"
 import { BarChart } from "@/components/tremor/bar-chart"
 import { AdvancedAnalyticsSection } from "@/components/dashboard/advanced-analytics"
+import { TransferHistorySection } from "@/components/dashboard/transfer-history-section"
 import { useAuth } from "@/hooks/use-auth"
 
 interface StatsPayload {
@@ -246,6 +247,8 @@ export default function StatsPage() {
           )}
         </div>
       </section>
+
+      <TransferHistorySection />
     </div>
   )
 }

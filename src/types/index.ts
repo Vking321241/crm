@@ -187,6 +187,13 @@ export interface Conversation {
   /** The contact's product/service tags — e.g. [Setor Gráfico],
    *  [Fardamentos] — shown as colored chips in the conversation list. */
   tags?: Tag[];
+  /** True when the current assignee hasn't confirmed starting service
+   *  after a transfer or a business-hours auto-resume — drives the
+   *  "iniciar atendimento / apenas visualizar" pop-up. */
+  needs_acknowledgment?: boolean;
+  acknowledgment_reason?: "transferred" | "resumed";
+  paused_at?: string;
+  pause_reason?: "manual" | "business_hours";
 }
 
 // ============================================================

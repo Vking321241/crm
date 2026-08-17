@@ -24,6 +24,8 @@ import {
   PanelRightOpen,
   PanelRightClose,
   CircleX,
+  PauseCircle,
+  PlayCircle,
 } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -48,6 +50,7 @@ import {
   SURVEY_MESSAGE,
   type CloseReason,
 } from "./close-conversation-modal";
+import { AcknowledgmentModal } from "./acknowledgment-modal";
 import { toast } from "sonner";
 
 /** Message row as returned by GET /api/conversations/[id]/messages —
@@ -147,6 +150,10 @@ export function MessageThread({
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
+  // Tracks which conversation the agent already dismissed ("apenas
+  // visualizar") THIS viewing session — cleared whenever they switch
+  // conversations, so reopening the same one re-prompts, per spec.
+  const [dismissedAckId, setDismissedAckId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -248,7 +255,28 @@ export function MessageThread({
   // Clear any in-progress reply draft when the active conversation changes.
   useEffect(() => {
     setReplyTo(null);
+    setDismissedAckId(null);
   }, [conversationId]);
+
+  const handleAcknowledgeStart = useCallback(async () => {
+    if (!conversation) return;
+    const res = await fetch(`/api/conversations/${conversation.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acknowledge: true }),
+    });
+    if (!res.ok) {
+      toast.error("Falha ao iniciar o atendimento");
+      return;
+    }
+    setConversation((prev) =>
+      prev ? { ...prev, needs_acknowledgment: false, acknowledgment_reason: undefined } : prev,
+    );
+  }, [conversation]);
+
+  const handleAcknowledgeDismiss = useCallback(() => {
+    if (conversation) setDismissedAckId(conversation.id);
+  }, [conversation]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -403,6 +431,30 @@ export function MessageThread({
     },
     [handleSend, handleStatusChange],
   );
+
+  const handleTogglePause = useCallback(async () => {
+    if (!conversation) return;
+    const nextPaused = !conversation.paused_at;
+    setConversation((prev) =>
+      prev
+        ? {
+            ...prev,
+            paused_at: nextPaused ? new Date().toISOString() : undefined,
+            pause_reason: nextPaused ? "manual" : undefined,
+          }
+        : prev,
+    );
+    const res = await fetch(`/api/conversations/${conversation.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: nextPaused }),
+    });
+    if (!res.ok) {
+      toast.error("Falha ao atualizar a pausa do atendimento");
+    } else {
+      toast.success(nextPaused ? "Atendimento pausado" : "Atendimento retomado");
+    }
+  }, [conversation]);
 
   // Build a quick id → Message map so reply quotes can be rendered without
   // an extra fetch — the thread already holds the full conversation.
@@ -777,6 +829,33 @@ export function MessageThread({
           {conversation.status !== "closed" && (
             <button
               type="button"
+              onClick={handleTogglePause}
+              title={
+                conversation.paused_at
+                  ? "Retomar atendimento"
+                  : "Pausar atendimento (ex.: fim do expediente)"
+              }
+              className={cn(
+                "inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
+                conversation.paused_at
+                  ? "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              {conversation.paused_at ? (
+                <PlayCircle className="h-3.5 w-3.5" />
+              ) : (
+                <PauseCircle className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {conversation.paused_at ? "Retomar" : "Pausar"}
+              </span>
+            </button>
+          )}
+
+          {conversation.status !== "closed" && (
+            <button
+              type="button"
               onClick={() => setCloseModalOpen(true)}
               className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-red-500/10 px-2.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
             >
@@ -786,6 +865,15 @@ export function MessageThread({
           )}
         </div>
       </div>
+
+      {conversation.paused_at && (
+        <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-400">
+          <PauseCircle className="size-3.5 shrink-0" />
+          {conversation.pause_reason === "business_hours"
+            ? "Atendimento pausado automaticamente — fora do horário de funcionamento."
+            : "Atendimento pausado manualmente."}
+        </div>
+      )}
 
       {/* Messages Area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
@@ -868,6 +956,17 @@ export function MessageThread({
         open={closeModalOpen}
         onOpenChange={setCloseModalOpen}
         onConfirm={handleConfirmClose}
+      />
+
+      <AcknowledgmentModal
+        open={
+          !!conversation.needs_acknowledgment &&
+          conversation.assigned_agent_id === user?.id &&
+          dismissedAckId !== conversation.id
+        }
+        reason={conversation.acknowledgment_reason}
+        onStart={handleAcknowledgeStart}
+        onDismiss={handleAcknowledgeDismiss}
       />
     </div>
   );

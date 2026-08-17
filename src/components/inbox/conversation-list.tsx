@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus } from "@/types";
-import { Search, ChevronDown, X, UserCheck, AlertTriangle } from "lucide-react";
+import { Search, ChevronDown, X, UserCheck, AlertTriangle, Archive } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -39,10 +39,13 @@ const POLL_MS = 5000;
  *  amber wait-time alert on its list row. */
 const PENDING_ALERT_MINUTES = 15;
 
+// "Fechados" is deliberately NOT one of the main tabs — it renders
+// as a compact icon button instead (see the corner button below),
+// keeping the primary row focused on the two states an agent acts
+// on day-to-day.
 const STATUS_TABS: { value: ConversationStatus; label: string }[] = [
   { value: "open", label: "Ativos" },
   { value: "pending", label: "Pendentes" },
-  { value: "closed", label: "Fechados" },
 ];
 
 export function ConversationList({
@@ -186,8 +189,8 @@ export function ConversationList({
 
   return (
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
-      {/* Status tabs — Ativos / Pendentes / Fechados */}
-      <div className="flex border-b border-border">
+      {/* Status tabs — Ativos / Pendentes, + Fechados as a corner icon */}
+      <div className="flex items-center border-b border-border">
         {STATUS_TABS.map((tab) => {
           const isActive = filter === tab.value;
           const pendingWaiting =
@@ -225,6 +228,26 @@ export function ConversationList({
             </button>
           );
         })}
+
+        <button
+          type="button"
+          onClick={() => setFilter("closed")}
+          title="Fechados"
+          aria-pressed={filter === "closed"}
+          className={cn(
+            "relative flex shrink-0 items-center justify-center border-b-2 px-3 py-2.5 transition-colors",
+            filter === "closed"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Archive className="size-4" />
+          {counts.closed > 0 && (
+            <span className="absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-muted px-0.5 text-[9px] font-bold text-muted-foreground">
+              {counts.closed}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Search + Filter */}

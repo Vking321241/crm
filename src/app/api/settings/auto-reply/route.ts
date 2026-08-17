@@ -22,14 +22,23 @@ function isValidBusinessHours(value: unknown): value is BusinessHours {
   const v = value as Record<string, unknown>;
   return DAY_KEYS.every((day) => {
     const d = v[day] as Record<string, unknown> | undefined;
-    return (
-      d &&
-      typeof d.enabled === "boolean" &&
-      typeof d.start === "string" &&
-      typeof d.end === "string" &&
-      TIME_RE.test(d.start) &&
-      TIME_RE.test(d.end)
-    );
+    if (
+      !d ||
+      typeof d.enabled !== "boolean" ||
+      typeof d.start !== "string" ||
+      typeof d.end !== "string" ||
+      !TIME_RE.test(d.start) ||
+      !TIME_RE.test(d.end)
+    ) {
+      return false;
+    }
+    // Lunch-break fields are optional, but if either is present both
+    // must be valid "HH:mm" strings.
+    if (d.breakStart !== undefined || d.breakEnd !== undefined) {
+      if (typeof d.breakStart !== "string" || !TIME_RE.test(d.breakStart)) return false;
+      if (typeof d.breakEnd !== "string" || !TIME_RE.test(d.breakEnd)) return false;
+    }
+    return true;
   });
 }
 
@@ -68,6 +77,7 @@ export async function GET() {
       business_hours: row.businessHours ?? DEFAULT_BUSINESS_HOURS,
       away_enabled: row.awayEnabled,
       away_message: row.awayMessage,
+      auto_pause_outside_business_hours: row.autoPauseOutsideBusinessHours,
     });
   } catch (err) {
     return toErrorResponse(err);
@@ -82,6 +92,7 @@ interface Body {
   business_hours?: unknown;
   away_enabled?: boolean;
   away_message?: string;
+  auto_pause_outside_business_hours?: boolean;
 }
 
 export async function PUT(request: Request) {
@@ -119,6 +130,9 @@ export async function PUT(request: Request) {
         ...(body.business_hours !== undefined ? { businessHours: body.business_hours } : {}),
         ...(body.away_enabled !== undefined ? { awayEnabled: body.away_enabled } : {}),
         ...(body.away_message !== undefined ? { awayMessage: body.away_message.trim() } : {}),
+        ...(body.auto_pause_outside_business_hours !== undefined
+          ? { autoPauseOutsideBusinessHours: body.auto_pause_outside_business_hours }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(autoReplySettings.accountId, ctx.accountId))
@@ -132,6 +146,7 @@ export async function PUT(request: Request) {
       business_hours: updated.businessHours,
       away_enabled: updated.awayEnabled,
       away_message: updated.awayMessage,
+      auto_pause_outside_business_hours: updated.autoPauseOutsideBusinessHours,
     });
   } catch (err) {
     return toErrorResponse(err);

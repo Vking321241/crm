@@ -48,6 +48,7 @@ interface ApiShape {
   business_hours: BusinessHours;
   away_enabled: boolean;
   away_message: string;
+  auto_pause_outside_business_hours: boolean;
 }
 
 export function AutoReplySettings() {
@@ -64,6 +65,7 @@ export function AutoReplySettings() {
   const [businessHours, setBusinessHours] = useState<BusinessHours>(DEFAULT_HOURS);
   const [awayEnabled, setAwayEnabled] = useState(false);
   const [awayMessage, setAwayMessage] = useState('');
+  const [autoPause, setAutoPause] = useState(false);
 
   const loadedAccountIdRef = useRef<string | null>(null);
 
@@ -83,6 +85,7 @@ export function AutoReplySettings() {
       setBusinessHours(data.business_hours ?? DEFAULT_HOURS);
       setAwayEnabled(data.away_enabled);
       setAwayMessage(data.away_message);
+      setAutoPause(data.auto_pause_outside_business_hours ?? false);
     } catch {
       toast.error('Não foi possível carregar as configurações.');
     } finally {
@@ -118,6 +121,7 @@ export function AutoReplySettings() {
           business_hours: businessHours,
           away_enabled: awayEnabled,
           away_message: awayMessage.trim(),
+          auto_pause_outside_business_hours: autoPause,
         }),
       });
       const data = await res.json();
@@ -244,33 +248,88 @@ export function AutoReplySettings() {
               <div className="space-y-2">
                 {DAYS.map(({ key, label }) => {
                   const day = businessHours[key];
+                  const hasBreak = day.breakStart !== undefined && day.breakEnd !== undefined;
                   return (
-                    <div key={key} className="flex flex-wrap items-center gap-3 rounded-md border border-border p-2">
-                      <Switch
-                        checked={day.enabled}
-                        onCheckedChange={(v) => setDay(key, { enabled: v })}
-                        disabled={disabled}
-                      />
-                      <span className="w-20 text-sm text-foreground">{label}</span>
-                      <Input
-                        type="time"
-                        value={day.start}
-                        onChange={(e) => setDay(key, { start: e.target.value })}
-                        disabled={disabled || !day.enabled}
-                        className="w-28"
-                      />
-                      <span className="text-xs text-muted-foreground">até</span>
-                      <Input
-                        type="time"
-                        value={day.end}
-                        onChange={(e) => setDay(key, { end: e.target.value })}
-                        disabled={disabled || !day.enabled}
-                        className="w-28"
-                      />
+                    <div key={key} className="rounded-md border border-border p-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Switch
+                          checked={day.enabled}
+                          onCheckedChange={(v) => setDay(key, { enabled: v })}
+                          disabled={disabled}
+                        />
+                        <span className="w-20 text-sm text-foreground">{label}</span>
+                        <Input
+                          type="time"
+                          value={day.start}
+                          onChange={(e) => setDay(key, { start: e.target.value })}
+                          disabled={disabled || !day.enabled}
+                          className="w-28"
+                        />
+                        <span className="text-xs text-muted-foreground">até</span>
+                        <Input
+                          type="time"
+                          value={day.end}
+                          onChange={(e) => setDay(key, { end: e.target.value })}
+                          disabled={disabled || !day.enabled}
+                          className="w-28"
+                        />
+                      </div>
+                      {day.enabled && (
+                        <div className="mt-2 flex flex-wrap items-center gap-3 pl-[3.75rem]">
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Switch
+                              checked={hasBreak}
+                              onCheckedChange={(v) =>
+                                setDay(
+                                  key,
+                                  v
+                                    ? { breakStart: '12:00', breakEnd: '13:00' }
+                                    : { breakStart: undefined, breakEnd: undefined },
+                                )
+                              }
+                              disabled={disabled}
+                            />
+                            Intervalo de almoço
+                          </label>
+                          {hasBreak && (
+                            <>
+                              <Input
+                                type="time"
+                                value={day.breakStart}
+                                onChange={(e) => setDay(key, { breakStart: e.target.value })}
+                                disabled={disabled}
+                                className="w-28"
+                              />
+                              <span className="text-xs text-muted-foreground">até</span>
+                              <Input
+                                type="time"
+                                value={day.breakEnd}
+                                onChange={(e) => setDay(key, { breakEnd: e.target.value })}
+                                disabled={disabled}
+                                className="w-28"
+                              />
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Pausar atendimentos automaticamente fora do horário
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Conversas abertas são pausadas fora do horário acima (após o expediente, no
+                  almoço) e retomam sozinhas quando o horário voltar — pedindo confirmação do
+                  atendente.
+                </p>
+              </div>
+              <Switch checked={autoPause} onCheckedChange={setAutoPause} disabled={disabled} />
             </div>
           </CardContent>
         </Card>

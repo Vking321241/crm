@@ -78,6 +78,13 @@
       "when": 1786944126955,
       "tag": "0010_noisy_roughhouse",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786946602579,
+      "tag": "0011_chunky_alex_power",
+      "breakpoints": true
     }
   ]
 }

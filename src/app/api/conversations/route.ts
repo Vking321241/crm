@@ -5,6 +5,13 @@
 // newest-first. Supports `?status=open|pending|closed` and
 // `?search=<name-or-phone>`. Any account member can read (viewer
 // included) — mutations are gated at agent+ in the [id] routes.
+//
+// Visibility: owner/admin always see every conversation. A plain
+// agent/viewer only sees their OWN — Ativos/Fechados are scoped to
+// `assigned_agent_id = caller` automatically, no `assignedToMe`
+// param needed. "Pendentes" is the one exception: it stays the
+// shared department queue (unfiltered) so anyone can pick a waiting
+// conversation up, matching how transfers/hand-offs actually work.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -12,6 +19,7 @@ import { and, desc, eq, ilike, or } from "drizzle-orm";
 
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { conversations, contacts, conversationStatusEnum } from "@/db/schema";
+import { roleHasFullAccess } from "@/lib/auth/permissions";
 import { toApiConversation, loadTagsByContactId } from "./_shared";
 
 const VALID_STATUSES = conversationStatusEnum.enumValues;
@@ -36,6 +44,8 @@ export async function GET(request: Request) {
     }
 
     if (assignedToMe) {
+      conditions.push(eq(conversations.assignedAgentId, ctx.userId));
+    } else if (!roleHasFullAccess(ctx.role) && status !== "pending") {
       conditions.push(eq(conversations.assignedAgentId, ctx.userId));
     }
 

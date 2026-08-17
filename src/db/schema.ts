@@ -365,6 +365,14 @@ export const autoReplySettings = pgTable("auto_reply_settings", {
   businessHours: jsonb("business_hours").notNull().default(DEFAULT_BUSINESS_HOURS),
   awayEnabled: boolean("away_enabled").notNull().default(false),
   awayMessage: text("away_message").notNull().default(DEFAULT_AWAY_MESSAGE),
+  // Owner/admin-only toggle (see /api/settings/auto-reply): when on,
+  // the business-hours cron sweep (src/app/api/cron/business-hours/route.ts)
+  // auto-pauses every open conversation the moment `businessHours`
+  // says the account is closed (after-hours, lunch break, …), and
+  // flags them for re-acknowledgment when hours resume.
+  autoPauseOutsideBusinessHours: boolean("auto_pause_outside_business_hours")
+    .notNull()
+    .default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -536,6 +544,22 @@ export const conversations = pgTable(
     // AUTO_REPLY_THROTTLE_HOURS window, so a customer sending several
     // messages in a row doesn't get the same auto-reply repeated.
     lastAutoReplyAt: timestamp("last_auto_reply_at", { withTimezone: true }),
+    // Set true whenever assignedAgentId changes to someone new (a
+    // transfer) or a business-hours auto-pause lifts on a conversation
+    // that has an assignee. The assignee sees a pop-up ("iniciar
+    // atendimento" or "apenas visualizar") the next time they open it;
+    // choosing "apenas visualizar" leaves this true so the pop-up
+    // reappears on their next visit, while "iniciar" clears it. Only a
+    // NEW transfer/resume event flips it back to true.
+    needsAcknowledgment: boolean("needs_acknowledgment").notNull().default(false),
+    acknowledgmentReason: text("acknowledgment_reason"), // 'transferred' | 'resumed'
+    // Manual pause (agent/admin toggled, e.g. end of shift) or
+    // automatic pause outside the account's configured business hours
+    // (see auto_reply_settings.auto_pause_outside_business_hours +
+    // the cron sweep that sets/clears this). Independent of `status`
+    // — a paused conversation stays open/pending, just flagged.
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pauseReason: text("pause_reason"), // 'manual' | 'business_hours'
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -543,6 +567,40 @@ export const conversations = pgTable(
     index("idx_conversations_account").on(table.accountId),
     uniqueIndex("idx_conversations_account_contact").on(table.accountId, table.contactId),
     index("idx_conversations_department").on(table.departmentId),
+  ],
+);
+
+// ------------------------------------------------------------
+// conversation_transfers — audit trail of every reassignment
+// (agent-to-agent) and department transfer, so a manager/owner can
+// see who handed a conversation to whom and how often (Relatórios).
+// Agent/viewer members never see this — gated to `reports` access,
+// same as the rest of Estatísticas (see /api/conversations/transfers).
+// ------------------------------------------------------------
+export const conversationTransfers = pgTable(
+  "conversation_transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    fromAgentId: uuid("from_agent_id").references(() => users.id, { onDelete: "set null" }),
+    toAgentId: uuid("to_agent_id").references(() => users.id, { onDelete: "set null" }),
+    fromDepartmentId: uuid("from_department_id").references(() => departments.id, {
+      onDelete: "set null",
+    }),
+    toDepartmentId: uuid("to_department_id").references(() => departments.id, {
+      onDelete: "set null",
+    }),
+    transferredBy: uuid("transferred_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_conversation_transfers_account_created").on(table.accountId, table.createdAt),
+    index("idx_conversation_transfers_conversation").on(table.conversationId),
   ],
 );
 
