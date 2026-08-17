@@ -20,6 +20,7 @@ import {
   Users2,
   Check,
   ArrowLeft,
+  ArrowRightLeft,
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
@@ -34,9 +35,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
 import {
@@ -629,6 +636,8 @@ export function MessageThread({
     [conversation, user?.id],
   );
 
+  const [transferOpen, setTransferOpen] = useState(false);
+
   const handleAssignChange = useCallback(
     async (agentId: string | null) => {
       if (!conversation) return;
@@ -641,6 +650,7 @@ export function MessageThread({
       if (!res.ok) {
         toast.error("Falha ao atualizar a atribuição");
       }
+      setTransferOpen(false);
     },
     [conversation],
   );
@@ -664,6 +674,7 @@ export function MessageThread({
       } else {
         toast.success(departmentId ? "Conversa transferida" : "Conversa removida do setor");
       }
+      setTransferOpen(false);
     },
     [conversation],
   );
@@ -701,9 +712,8 @@ export function MessageThread({
       : STATUS_OPTIONS.find((s) => s.value === conversation.status);
   const assignedAgentId = conversation.assigned_agent_id ?? null;
   const currentAssignee = members.find((p) => p.user_id === assignedAgentId);
-  const assignLabel = assignedAgentId
-    ? (currentAssignee?.full_name ?? t("assigned"))
-    : t("assign");
+  const currentDepartment = departments.find((d) => d.id === conversation.department_id);
+  const transferLabel = currentAssignee?.full_name ?? currentDepartment?.name ?? "Transferir";
 
   return (
     <div className={cn("flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
@@ -785,119 +795,125 @@ export function MessageThread({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Assign dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className={cn(
-                "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                assignedAgentId ? "text-primary" : "text-muted-foreground"
-              )}
-            >
-              <UserPlus className="h-3 w-3" />
-              <span className="hidden sm:inline">{assignLabel}</span>
-              <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="border-border bg-popover">
-              {members.length === 0 ? (
-                <DropdownMenuItem disabled className="text-sm text-muted-foreground">
-                  {t("noTeammates")}
-                </DropdownMenuItem>
-              ) : (
-                members.map((p) => {
-                  const isSelected = p.user_id === assignedAgentId;
-                  const presence = getPresence(p.user_id);
-                  return (
-                    <DropdownMenuItem
-                      key={p.user_id}
-                      onClick={() => handleAssignChange(p.user_id)}
-                      className={cn(
-                        "text-sm",
-                        isSelected ? "text-primary" : "text-popover-foreground"
-                      )}
-                    >
-                      <PresenceDot
-                        status={presence}
-                        label={presenceLabel(
-                          presence,
-                          getRow(p.user_id)?.last_seen_at ?? null,
-                          now
-                        )}
-                        className="mr-2"
-                      />
-                      <span className="flex-1">
-                        {p.full_name}
-                        {p.user_id === user?.id ? t("me") : ""}
-                      </span>
-                      {isSelected && <Check className="ml-2 h-3 w-3" />}
-                    </DropdownMenuItem>
-                  );
-                })
-              )}
-              {assignedAgentId && (
-                <>
-                  <DropdownMenuSeparator className="bg-border" />
-                  <DropdownMenuItem
-                    onClick={() => handleAssignChange(null)}
-                    className="text-sm text-muted-foreground"
-                  >
-                    {t("unassign")}
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Unified transfer button */}
+          <button
+            type="button"
+            onClick={() => setTransferOpen(true)}
+            className={cn(
+              "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+              assignedAgentId || conversation.department_id ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            <ArrowRightLeft className="h-3 w-3" />
+            <span className="hidden sm:inline">{transferLabel}</span>
+          </button>
 
-          {/* Transfer-to-department dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className={cn(
-                "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                conversation.department_id ? "text-primary" : "text-muted-foreground",
-              )}
-            >
-              <Users2 className="h-3 w-3" />
-              <span className="hidden sm:inline">
-                {departments.find((d) => d.id === conversation.department_id)?.name ?? "Setor"}
-              </span>
-              <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="border-border bg-popover">
-              {departments.length === 0 ? (
-                <DropdownMenuItem disabled className="text-sm text-muted-foreground">
-                  Nenhum setor criado
-                </DropdownMenuItem>
-              ) : (
-                departments.map((d) => {
-                  const isSelected = d.id === conversation.department_id;
-                  return (
-                    <DropdownMenuItem
-                      key={d.id}
-                      onClick={() => handleDepartmentChange(d.id)}
-                      className={cn("text-sm", isSelected ? "text-primary" : "text-popover-foreground")}
-                    >
-                      <span
-                        className="mr-2 inline-block size-2 rounded-full"
-                        style={{ backgroundColor: d.color }}
-                      />
-                      <span className="flex-1">{d.name}</span>
-                      {isSelected && <Check className="ml-2 h-3 w-3" />}
-                    </DropdownMenuItem>
-                  );
-                })
-              )}
-              {conversation.department_id && (
-                <>
-                  <DropdownMenuSeparator className="bg-border" />
-                  <DropdownMenuItem
-                    onClick={() => handleDepartmentChange(null)}
-                    className="text-sm text-muted-foreground"
-                  >
-                    Remover do setor
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Transferir atendimento</DialogTitle>
+                <DialogDescription>
+                  Escolha um atendente ou um setor para transferir esta conversa.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[60vh] space-y-4 overflow-y-auto">
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <UserPlus className="h-3 w-3" />
+                    Atendentes
+                  </p>
+                  <div className="space-y-0.5">
+                    {members.length === 0 ? (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground">{t("noTeammates")}</p>
+                    ) : (
+                      members.map((p) => {
+                        const isSelected = p.user_id === assignedAgentId;
+                        const presence = getPresence(p.user_id);
+                        return (
+                          <button
+                            key={p.user_id}
+                            type="button"
+                            onClick={() => handleAssignChange(p.user_id)}
+                            className={cn(
+                              "flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                              isSelected ? "text-primary" : "text-popover-foreground",
+                            )}
+                          >
+                            <PresenceDot
+                              status={presence}
+                              label={presenceLabel(
+                                presence,
+                                getRow(p.user_id)?.last_seen_at ?? null,
+                                now
+                              )}
+                              className="mr-2"
+                            />
+                            <span className="flex-1">
+                              {p.full_name}
+                              {p.user_id === user?.id ? t("me") : ""}
+                            </span>
+                            {isSelected && <Check className="ml-2 h-3 w-3" />}
+                          </button>
+                        );
+                      })
+                    )}
+                    {assignedAgentId && (
+                      <button
+                        type="button"
+                        onClick={() => handleAssignChange(null)}
+                        className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        {t("unassign")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <Users2 className="h-3 w-3" />
+                    Setores
+                  </p>
+                  <div className="space-y-0.5">
+                    {departments.length === 0 ? (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground">Nenhum setor criado</p>
+                    ) : (
+                      departments.map((d) => {
+                        const isSelected = d.id === conversation.department_id;
+                        return (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => handleDepartmentChange(d.id)}
+                            className={cn(
+                              "flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                              isSelected ? "text-primary" : "text-popover-foreground",
+                            )}
+                          >
+                            <span
+                              className="mr-2 inline-block size-2 rounded-full"
+                              style={{ backgroundColor: d.color }}
+                            />
+                            <span className="flex-1">{d.name}</span>
+                            {isSelected && <Check className="ml-2 h-3 w-3" />}
+                          </button>
+                        );
+                      })
+                    )}
+                    {conversation.department_id && (
+                      <button
+                        type="button"
+                        onClick={() => handleDepartmentChange(null)}
+                        className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        Remover do setor
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {conversation.status !== "closed" && (
             <button
