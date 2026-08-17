@@ -1,4 +1,5 @@
 import {
+  Cake,
   CreditCard,
   LayoutGrid,
   MessageSquareText,
@@ -34,6 +35,7 @@ export const SETTINGS_SECTIONS = [
   'departments',
   'members',
   'permissions',
+  'birthdays',
   'subscription',
 ] as const;
 
@@ -83,6 +85,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   departments: { id: 'departments', label: 'Setores', icon: Users2, group: 'workspace' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   permissions: { id: 'permissions', label: 'Permissões', icon: ShieldCheck, group: 'workspace' },
+  birthdays: { id: 'birthdays', label: 'Aniversários', icon: Cake, group: 'workspace' },
   subscription: { id: 'subscription', label: 'Assinatura', icon: CreditCard, group: 'workspace' },
 };
 

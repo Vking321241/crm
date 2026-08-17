@@ -928,6 +928,58 @@ export const conversationTasks = pgTable(
 );
 
 // ------------------------------------------------------------
+// collaborator_birthdays — the roster driving /api/cron/birthdays.
+// `birthDate`'s year is never read, only month/day (matched against
+// "today" each sweep) — Postgres still requires a full date, so any
+// year works; the form just needs *a* value. `groupContactId` points
+// at a contact with `is_group = true` (a WhatsApp group, picked by
+// name in the UI, never by raw chat id) that receives the monthly
+// roll-up; `phone` (optional, digits) is who gets the individual
+// congratulations message on the exact day.
+// ------------------------------------------------------------
+export const collaboratorBirthdays = pgTable(
+  "collaborator_birthdays",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    birthDate: date("birth_date").notNull(),
+    phone: text("phone"),
+    groupContactId: uuid("group_contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    // Last calendar year this person's individual "happy birthday"
+    // message was sent — guards against a cron double-fire sending
+    // it twice the same day/year.
+    lastGreetedYear: integer("last_greeted_year"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_collaborator_birthdays_account").on(table.accountId)],
+);
+
+// One row per (group, "YYYY-MM") the day-1 monthly roll-up was sent
+// for — the idempotency guard for that summary, mirroring
+// `lastGreetedYear` above for the individual messages.
+export const birthdayMonthlySummaries = pgTable(
+  "birthday_monthly_summaries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    groupContactId: uuid("group_contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    yearMonth: text("year_month").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_birthday_summaries_group_month").on(table.groupContactId, table.yearMonth),
+  ],
+);
+
+// ------------------------------------------------------------
 // internal_channels / members / messages — team-only chat (never
 // visible to customers), separate from the customer-facing
 // conversations/messages tables. A channel is either a 1:1 DM

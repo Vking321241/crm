@@ -18,6 +18,7 @@ import { DepartmentManager } from '@/components/settings/department-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { MembersTab } from '@/components/settings/members-tab';
 import { PermissionsMatrix } from '@/components/settings/permissions-matrix';
+import { BirthdaysManager } from '@/components/settings/birthdays-manager';
 import { SubscriptionPanel } from '@/components/settings/subscription-panel';
 import {
   resolveSection,
@@ -76,6 +77,7 @@ export default function SettingsPage() {
     departments: <DepartmentManager />,
     members: <MembersTab />,
     permissions: <PermissionsMatrix />,
+    birthdays: <BirthdaysManager />,
     subscription: <SubscriptionPanel />,
   };
 
