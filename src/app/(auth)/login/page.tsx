@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MessageSquare, UsersRound } from "lucide-react";
+import { UsersRound } from "lucide-react";
 
 // `useSearchParams` opts the component out of static prerendering
 // unless it sits under a Suspense boundary. We split the form into
@@ -88,9 +88,8 @@ function LoginPageInner() {
             className="absolute -bottom-20 -left-10 h-64 w-64 rounded-full bg-white/10 blur-2xl"
           />
           <div className="relative flex items-center gap-2 font-heading text-lg">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-white/15">
-              <MessageSquare className="size-5" />
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/icon-white.png" alt="" className="size-9 object-contain" />
             <span>
               <span className="font-extrabold">DIVARY</span>Talk
             </span>
@@ -112,7 +111,8 @@ function LoginPageInner() {
               {inviteToken ? (
                 <UsersRound className="h-5 w-5 text-primary" />
               ) : (
-                <MessageSquare className="h-5 w-5 text-primary" />
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src="/brand/icon-blue.png" alt="" className="size-6 object-contain" />
               )}
             </div>
             <h1 className="font-heading text-xl font-semibold text-foreground">

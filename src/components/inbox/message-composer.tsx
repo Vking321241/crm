@@ -354,6 +354,29 @@ export function MessageComposer({
     [stageUpload],
   );
 
+  // Ctrl+V / Cmd+V an image straight from the clipboard (screenshot,
+  // copied image, …) — same staging path as picking one from the
+  // attach menu. Only intercepts when the clipboard actually carries
+  // an image; plain text paste falls through untouched.
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (readOnly || busy || draft) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            void stageUpload("image", file);
+          }
+          return;
+        }
+      }
+    },
+    [readOnly, busy, draft, stageUpload],
+  );
+
   // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
 
   const finalizeRecording = useCallback(
@@ -633,6 +656,7 @@ export function MessageComposer({
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={readOnly ? t("readOnlyPlaceholder") : t("typeMessagePlaceholder")}
             disabled={readOnly}
             rows={1}

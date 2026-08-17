@@ -20,6 +20,15 @@ import { ReplyQuote } from "./reply-quote";
 import { MessageReactions } from "./message-reactions";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { useTranslations } from "next-intl";
+import { MediaLightbox, DocumentDownloadLink } from "./media-lightbox";
+import { VoiceMessagePlayer } from "./voice-message-player";
+
+/** True for a URL/filename that ends in `.pdf` — the only "document"
+ *  format previewable inline; everything else (CDR, PSD, AI, SVG, …)
+ *  forces a download instead (see DocumentDownloadLink). */
+function isPdf(urlOrName: string): boolean {
+  return /\.pdf(\?|#|$)/i.test(urlOrName);
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -107,7 +116,9 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
       return (
         <div>
           {message.media_url ? (
-            <MediaImage url={message.media_url} alt="Shared image" />
+            <MediaLightbox kind="image" url={message.media_url} filename={message.content_text}>
+              <MediaImage url={message.media_url} alt="Shared image" />
+            </MediaLightbox>
           ) : (
             <MediaUnavailable label={t("photo")} t={t} />
           )}
@@ -123,11 +134,13 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
       return (
         <div>
           {message.media_url ? (
-            <video
-              src={message.media_url}
-              controls
-              className="max-h-64 max-w-60 rounded-lg"
-            />
+            <MediaLightbox kind="video" url={message.media_url} filename={message.content_text}>
+              <video
+                src={message.media_url}
+                muted
+                className="max-h-64 max-w-60 rounded-lg object-cover"
+              />
+            </MediaLightbox>
           ) : (
             <MediaUnavailable label={t("video")} t={t} />
           )}
@@ -139,34 +152,43 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
         </div>
       );
 
-    case "audio":
+    case "audio": {
+      const isAgentMsg = message.sender_type === "agent" || message.sender_type === "bot";
       return (
         <div>
           {message.media_url ? (
-            <audio src={message.media_url} controls className="max-w-60" />
+            <VoiceMessagePlayer url={message.media_url} tone={isAgentMsg ? "primary" : "muted"} />
           ) : (
             <MediaUnavailable label={t("audio")} t={t} />
           )}
         </div>
       );
+    }
 
-    case "document":
+    case "document": {
       if (!message.media_url) {
         return <MediaUnavailable label={message.content_text || t("document")} t={t} />;
       }
-      return (
-        <a
-          href={message.media_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
-        >
+      const label = message.content_text || t("document");
+      const chip = (
+        <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted">
           <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            {message.content_text || t("document")}
-          </span>
-        </a>
+          <span className="truncate">{label}</span>
+        </div>
       );
+      // PDFs preview in-app (matches WhatsApp); every other format —
+      // CDR, PSD, AI, SVG, whatever — downloads directly instead of
+      // opening a blank/broken tab the browser can't render.
+      return isPdf(message.media_url) || isPdf(label) ? (
+        <MediaLightbox kind="pdf" url={message.media_url} filename={label}>
+          {chip}
+        </MediaLightbox>
+      ) : (
+        <DocumentDownloadLink url={message.media_url} filename={label}>
+          {chip}
+        </DocumentDownloadLink>
+      );
+    }
 
     case "template":
       return (
