@@ -70,7 +70,9 @@ export function TagManager() {
       const res = await fetch('/api/tags', { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'failed');
-      setTags(data.tags ?? []);
+      // "Grupo" (and any other platform-managed tag) is internal
+      // bookkeeping — nothing to rename/delete here.
+      setTags((data.tags ?? []).filter((tag: Tag) => !tag.isSystem));
     } catch (err) {
       console.error('Failed to fetch tags:', err);
       toast.error(t('failedToLoadTags'));

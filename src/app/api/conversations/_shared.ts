@@ -67,6 +67,7 @@ export function toApiContact(row: ContactRow) {
     email: row.email ?? undefined,
     company: row.company ?? undefined,
     avatar_url: row.avatarUrl ?? undefined,
+    is_group: row.isGroup,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
   };

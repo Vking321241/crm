@@ -108,6 +108,9 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  /** True for a WhatsApp group — `phone` is the group JID's digits,
+   *  not a real phone number. */
+  is_group?: boolean;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
@@ -121,6 +124,9 @@ export interface Tag {
   name: string;
   color: string;
   created_at: string;
+  /** Auto-managed by the platform (e.g. "Grupo") — hidden from the
+   *  regular tag manager and from tag-based reports. */
+  isSystem?: boolean;
 }
 
 export interface ContactTag {

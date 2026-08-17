@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus } from "@/types";
-import { Search, ChevronDown, X, UserCheck, AlertTriangle, Archive } from "lucide-react";
+import { Search, ChevronDown, X, UserCheck, AlertTriangle, Archive, Users } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useTranslations } from "next-intl";
@@ -470,6 +470,8 @@ function ConversationItem({
             alt={displayName}
             className="h-10 w-10 rounded-full object-cover"
           />
+        ) : contact?.is_group ? (
+          <Users className="size-4 text-muted-foreground" />
         ) : (
           initials
         )}
@@ -478,8 +480,9 @@ function ConversationItem({
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-foreground">
-            {displayName}
+          <span className="flex min-w-0 items-center gap-1 truncate text-sm font-medium text-foreground">
+            {contact?.is_group && <Users className="size-3 shrink-0 text-muted-foreground" />}
+            <span className="truncate">{displayName}</span>
           </span>
           <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
             {isWaitingTooLong && <AlertTriangle className="size-3 text-amber-500" />}

@@ -11,6 +11,8 @@ import {
   messageReactions,
   autoReplySettings,
   webhookDebugLog,
+  tags,
+  contactTags,
   DEFAULT_BUSINESS_HOURS,
 } from "@/db/schema";
 import { findExistingContactDb, isUniqueViolation } from "@/lib/contacts/dedupe";
@@ -126,9 +128,6 @@ async function processInbound(instanceId: string, body: unknown) {
     return;
   }
 
-  // Group chats aren't modeled as contacts/conversations in this
-  // slice — same scope boundary as everything else in this fatia.
-  if (parsed.isGroup) return;
   if (!parsed.phone) return;
 
   const { contact, wasCreated } = await findOrCreateContact(
@@ -136,8 +135,19 @@ async function processInbound(instanceId: string, body: unknown) {
     ownerUserId,
     parsed.phone,
     parsed.contactName,
+    parsed.isGroup,
   );
   if (!contact) return;
+
+  // First time this group is heard from: tag it "Grupo" so it's
+  // identifiable at a glance in Contatos, while staying out of the
+  // tag-based reports (tags.is_system) and out of the normal tag
+  // manager's editable list.
+  if (wasCreated && parsed.isGroup) {
+    await tagAsGroup(accountId, contact.id).catch((err) =>
+      console.error("[uazapi webhook] group tag error:", err),
+    );
+  }
 
   const conversation = await findOrCreateConversation(accountId, ownerUserId, contact.id);
   if (!conversation) return;
@@ -377,6 +387,7 @@ async function findOrCreateContact(
   ownerUserId: string,
   phone: string,
   name: string | null,
+  isGroup = false,
 ) {
   const existing = await findExistingContactDb(db, accountId, phone);
   if (existing) {
@@ -397,6 +408,7 @@ async function findOrCreateContact(
         userId: ownerUserId,
         phone,
         name: name || phone,
+        isGroup,
       })
       .returning();
     return { contact: created, wasCreated: true };
@@ -407,6 +419,33 @@ async function findOrCreateContact(
     console.error("[uazapi webhook] contact insert error:", err);
     return { contact: null, wasCreated: false };
   }
+}
+
+/** Finds (or lazily creates) this account's system "Grupo" tag and
+ *  attaches it to `contactId`. Idempotent — safe to call more than
+ *  once for the same contact. */
+async function tagAsGroup(accountId: string, contactId: string): Promise<void> {
+  const [existingTag] = await db
+    .select({ id: tags.id })
+    .from(tags)
+    .where(and(eq(tags.accountId, accountId), eq(tags.isSystem, true)))
+    .limit(1);
+
+  const tagId =
+    existingTag?.id ??
+    (
+      await db
+        .insert(tags)
+        .values({ accountId, name: "Grupo", color: "#6b7280", isSystem: true })
+        .returning({ id: tags.id })
+    )[0]?.id;
+
+  if (!tagId) return;
+
+  await db
+    .insert(contactTags)
+    .values({ contactId, tagId })
+    .onConflictDoNothing();
 }
 
 async function findOrCreateConversation(accountId: string, ownerUserId: string, contactId: string) {

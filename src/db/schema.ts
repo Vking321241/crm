@@ -386,6 +386,10 @@ export const contacts = pgTable(
     email: text("email"),
     company: text("company"),
     avatarUrl: text("avatar_url"),
+    // True for a WhatsApp group (phone is the group JID's digits, not
+    // a real phone number). Groups are otherwise treated exactly like
+    // any other contact/conversation — see the uazapi webhook route.
+    isGroup: boolean("is_group").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -428,6 +432,12 @@ export const tags = pgTable(
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     color: text("color").notNull().default("#3b82f6"),
+    // Auto-managed tags the platform itself creates (currently just
+    // "Grupo", applied to every WhatsApp group on first message) —
+    // hidden from the tag-based reports and not deletable from the
+    // regular tag manager, since removing it would just get
+    // recreated on the group's next message anyway.
+    isSystem: boolean("is_system").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("idx_tags_account").on(table.accountId)],

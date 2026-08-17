@@ -11,6 +11,8 @@ import {
   Tag as TagIcon,
   StickyNote,
   Plus,
+  Users,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -45,6 +47,10 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
   const [tags, setTags] = useState<Tag[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<
+    { phone: string; name: string | null; isAdmin: boolean }[] | null
+  >(null);
+  const [loadingMembers, setLoadingMembers] = useState(false);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) {
@@ -79,6 +85,19 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
   useEffect(() => {
     void fetchContactData();
   }, [fetchContactData]);
+
+  useEffect(() => {
+    if (!contact?.is_group) {
+      setGroupMembers(null);
+      return;
+    }
+    setLoadingMembers(true);
+    fetch(`/api/contacts/${encodeURIComponent(contact.id)}/group-members`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { participants: [] }))
+      .then((data) => setGroupMembers(data.participants ?? []))
+      .catch(() => setGroupMembers([]))
+      .finally(() => setLoadingMembers(false));
+  }, [contact?.id, contact?.is_group]);
 
   const handleCopyPhone = useCallback(async () => {
     if (!contact?.phone) return;
@@ -143,20 +162,27 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
             )}
           </div>
 
-          {/* Phone */}
+          {/* Phone / group indicator */}
           <div className="mt-4 space-y-2">
-            <button
-              onClick={handleCopyPhone}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
-            >
-              <Phone className="h-4 w-4 text-muted-foreground" />
-              <span className="flex-1 text-left">{contact.phone}</span>
-              {copied ? (
-                <Check className="h-3 w-3 text-primary" />
-              ) : (
-                <Copy className="h-3 w-3 text-muted-foreground" />
-              )}
-            </button>
+            {contact.is_group ? (
+              <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <span className="flex-1 text-left">Grupo do WhatsApp</span>
+              </div>
+            ) : (
+              <button
+                onClick={handleCopyPhone}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
+              >
+                <Phone className="h-4 w-4 text-muted-foreground" />
+                <span className="flex-1 text-left">{contact.phone}</span>
+                {copied ? (
+                  <Check className="h-3 w-3 text-primary" />
+                ) : (
+                  <Copy className="h-3 w-3 text-muted-foreground" />
+                )}
+              </button>
+            )}
 
             {contact.email && (
               <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">
@@ -168,6 +194,43 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
 
           {/* Divider */}
           <div className="my-4 border-t border-border" />
+
+          {/* Group members — best-effort, hides itself if UAZAPI has
+              nothing to offer rather than showing an empty-looking
+              error state. */}
+          {contact.is_group && (loadingMembers || (groupMembers && groupMembers.length > 0)) && (
+            <>
+              <div>
+                <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <Users className="h-3 w-3" />
+                  Membros do grupo
+                  {groupMembers && groupMembers.length > 0 && ` (${groupMembers.length})`}
+                </div>
+                {loadingMembers ? (
+                  <div className="flex justify-center py-3">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <ul className="mt-2 space-y-0.5">
+                    {groupMembers!.map((member) => (
+                      <li
+                        key={member.phone}
+                        className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-foreground"
+                      >
+                        <span className="truncate">{member.name || member.phone}</span>
+                        {member.isAdmin && (
+                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-primary">
+                            Admin
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="my-4 border-t border-border" />
+            </>
+          )}
 
           {/* Tags */}
           <div>

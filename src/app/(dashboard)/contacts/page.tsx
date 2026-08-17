@@ -527,7 +527,14 @@ export default function ContactsPage() {
                     {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
-                    {contact.phone}
+                    {contact.isGroup ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 font-sans text-[10px] font-medium not-italic">
+                        <Users className="size-3" />
+                        Grupo
+                      </span>
+                    ) : (
+                      contact.phone
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
                     {contact.email || <span className="text-muted-foreground">-</span>}

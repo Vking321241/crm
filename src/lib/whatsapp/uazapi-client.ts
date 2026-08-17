@@ -391,6 +391,55 @@ export async function getProfilePicture(
   return { ok: true, data: { url } };
 }
 
+export interface GroupParticipant {
+  phone: string;
+  name: string | null;
+  isAdmin: boolean;
+}
+
+/**
+ * Best-effort group metadata (name + participant list) for the
+ * "Membros do grupo" panel. Unverified against a live payload for
+ * this account — field names are a generous guess mirroring the
+ * rest of this file's UAZAPI integration, so a shape mismatch just
+ * yields an empty list rather than throwing (see the panel's
+ * caller, which hides itself on failure instead of showing an
+ * error).
+ */
+export async function getGroupInfo(
+  cfg: UazapiInstanceConfig,
+  groupJid: string,
+): Promise<UazapiResult<{ name: string | null; participants: GroupParticipant[] }>> {
+  if (!cfg.token) return { ok: false, error: "Instance is not connected" };
+  const res = await request<Record<string, unknown>>(
+    `${trimBase(cfg.baseUrl)}/group/info`,
+    { token: cfg.token },
+    { groupjid: toDestination(groupJid), number: toDestination(groupJid) },
+  );
+  if (!res.ok || !res.data) return { ok: false, error: res.error };
+
+  const name = (pick(res.data, "name", "subject", "groupName") as string | null) ?? null;
+  const rawParticipants = (res.data.participants ?? res.data.members ?? []) as unknown;
+  const participants: GroupParticipant[] = Array.isArray(rawParticipants)
+    ? rawParticipants
+        .map((p) => {
+          const row = (p ?? {}) as Record<string, unknown>;
+          const phone = onlyDigits(
+            String(row.phone ?? row.number ?? row.id ?? row.jid ?? row.participant ?? ""),
+          );
+          if (!phone) return null;
+          return {
+            phone,
+            name: (row.name ?? row.pushName ?? row.notify ?? null) as string | null,
+            isAdmin: row.isAdmin === true || row.admin === true || row.role === "admin",
+          };
+        })
+        .filter((p): p is GroupParticipant => p !== null)
+    : [];
+
+  return { ok: true, data: { name, participants } };
+}
+
 /**
  * Sends (or clears, with `emoji: ""`) a reaction on a specific
  * WhatsApp message — the actual delivery UAZAPI's `/message/react`
@@ -554,7 +603,15 @@ export function parseUazapiWebhook(body: unknown): NormalizedInboundMessage | nu
   let lid: string | null = null;
 
   if (isGroup) {
-    phone = onlyDigits(chatId || m.groupJid || m.chat || "");
+    // Keep the full JID (not just digits) — a group id can be
+    // "<user>-<timestamp>@g.us" (legacy format) or a long numeric id
+    // with no separator ("120363...@g.us"); stripping to digits-only
+    // loses the hyphen boundary on the legacy format and makes the
+    // group unreachable for outbound sends later. `sendText`'s
+    // `toDestination()` already passes any string containing "@"
+    // through untouched, so storing the JID as-is round-trips fine.
+    const rawGroupId = String(chatId || m.groupJid || m.chat || "").trim();
+    phone = rawGroupId ? (rawGroupId.includes("@") ? rawGroupId : `${rawGroupId}@g.us`) : "";
   } else {
     lid =
       asLid(m.chatlid) ||

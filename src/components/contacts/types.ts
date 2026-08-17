@@ -22,6 +22,7 @@ export interface Contact {
   email: string | null;
   company: string | null;
   avatarUrl: string | null;
+  isGroup?: boolean;
   createdAt: string;
   updatedAt: string;
   tags?: Tag[];
