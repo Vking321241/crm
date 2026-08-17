@@ -217,8 +217,25 @@ export function ContactDetailView({
       toast.error(t('toastNoteAddFailed'));
     } else {
       setNewNote('');
-      const data = (await res.json()) as { note: ContactNote };
-      setNotes((prev) => [data.note, ...prev]);
+      // POST /api/contacts/[id]/notes replies snake_case (same shape
+      // GET returns, and what the inbox contact sidebar consumes) —
+      // this component's own `ContactNote` type is camelCase (matches
+      // the OTHER contacts route, GET /api/contacts/[id], which embeds
+      // notes straight off Drizzle). Convert here rather than trust an
+      // `as ContactNote` cast, which silently produced `createdAt:
+      // undefined` and crashed date formatting downstream.
+      const data = (await res.json()) as {
+        note: { id: string; contact_id: string; user_id: string | null; note_text: string; created_at: string };
+      };
+      const note: ContactNote = {
+        id: data.note.id,
+        contactId: data.note.contact_id,
+        accountId: contactId ?? '',
+        userId: data.note.user_id,
+        noteText: data.note.note_text,
+        createdAt: data.note.created_at,
+      };
+      setNotes((prev) => [note, ...prev]);
       toast.success(t('toastNoteAdded'));
     }
     setSavingNote(false);
