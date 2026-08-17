@@ -183,6 +183,13 @@
       "when": 1786998325647,
       "tag": "0025_sturdy_gambit",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787003553298,
+      "tag": "0026_shiny_doorman",
+      "breakpoints": true
     }
   ]
 }

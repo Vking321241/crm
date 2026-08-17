@@ -13,6 +13,7 @@ import {
   webhookDebugLog,
   tags,
   contactTags,
+  csatResponses,
   DEFAULT_BUSINESS_HOURS,
 } from "@/db/schema";
 import { findExistingContactDb, isUniqueViolation } from "@/lib/contacts/dedupe";
@@ -214,6 +215,35 @@ async function processInbound(instanceId: string, body: unknown) {
       .where(and(eq(messages.conversationId, conversation.id), eq(messages.messageId, parsed.revokeTargetId)))
       .catch((err) => console.error("[uazapi webhook] revoke update error:", err));
     return;
+  }
+
+  // Satisfaction-survey reply: a plain "1".."5" (optionally with a
+  // little surrounding text/emoji, e.g. "Nota 5!" or "5 estrelas") on
+  // a conversation the close-flow marked as awaiting one (see
+  // conversations.survey_requested_at). Recorded once per
+  // conversation (idx_csat_responses_conversation) — a later message
+  // never overwrites it, and surveyRequestedAt is cleared right after
+  // so it can't be re-matched if this same contact writes again later.
+  if (!parsed.fromMe && !contact.isGroup && conversation.surveyRequestedAt && parsed.type === "text") {
+    const ratingMatch = (parsed.text ?? "").trim().match(/^[^\d]{0,15}([1-5])[^\d]{0,15}$/);
+    if (ratingMatch) {
+      try {
+        await db.insert(csatResponses).values({
+          accountId,
+          conversationId: conversation.id,
+          contactId: contact.id,
+          agentId: conversation.assignedAgentId,
+          rating: Number(ratingMatch[1]),
+          rawText: parsed.text ?? "",
+        });
+        await db
+          .update(conversations)
+          .set({ surveyRequestedAt: null })
+          .where(eq(conversations.id, conversation.id));
+      } catch (err) {
+        console.error("[uazapi webhook] csat response insert error:", err);
+      }
+    }
   }
 
   // Best-effort: pull the contact's WhatsApp profile photo the first

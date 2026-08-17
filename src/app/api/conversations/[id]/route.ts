@@ -79,6 +79,7 @@ export async function PATCH(
           department_id?: unknown;
           acknowledge?: unknown;
           paused?: unknown;
+          survey_requested?: unknown;
         }
       | null;
     if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
@@ -148,6 +149,10 @@ export async function PATCH(
       }
       update.pausedAt = body.paused ? new Date() : null;
       update.pauseReason = body.paused ? "manual" : null;
+    }
+
+    if (body.survey_requested === true) {
+      update.surveyRequestedAt = new Date();
     }
 
     if (Object.keys(update).length === 0) {

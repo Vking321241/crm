@@ -477,10 +477,17 @@ export function MessageThread({
     async (reason: CloseReason) => {
       if (reason === "survey") {
         await handleSend(SURVEY_MESSAGE);
+        if (conversation) {
+          await fetch(`/api/conversations/${conversation.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ survey_requested: true }),
+          }).catch(() => {});
+        }
       }
       await handleStatusChange("closed");
     },
-    [handleSend, handleStatusChange],
+    [handleSend, handleStatusChange, conversation],
   );
 
   const handleTogglePause = useCallback(async () => {

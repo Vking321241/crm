@@ -5,6 +5,7 @@ import {
   contactTags,
   contacts,
   conversations,
+  csatResponses,
   departments,
   messages,
   tags,
@@ -706,4 +707,71 @@ export async function loadTagInteractionStats(
   }
 
   return result.sort((a, b) => b.contactCount - a.contactCount);
+}
+
+// --- CSAT (satisfaction survey) report ---------------------------------
+
+export interface CsatAgentStat {
+  agentId: string;
+  name: string;
+  avgRating: number;
+  responseCount: number;
+}
+
+export interface CsatStats {
+  totalResponses: number;
+  avgRating: number | null;
+  /** Index 0 = count of rating "1", … index 4 = count of rating "5". */
+  distribution: number[];
+  byAgent: CsatAgentStat[];
+}
+
+/**
+ * Aggregates every csat_responses row in [rangeStart, now) — one row
+ * per conversation whose customer replied 1-5 to the "Enviar nota
+ * para atendimento" close-flow survey (see the uazapi webhook's
+ * CSAT-parsing branch).
+ */
+export async function loadCsatStats(db: Db, accountId: string, rangeDays: number): Promise<CsatStats> {
+  const start = daysAgoStart(rangeDays - 1);
+
+  const rows = await db
+    .select({ rating: csatResponses.rating, agentId: csatResponses.agentId })
+    .from(csatResponses)
+    .where(and(eq(csatResponses.accountId, accountId), gte(csatResponses.createdAt, start)));
+
+  const distribution = [0, 0, 0, 0, 0];
+  let sum = 0;
+  const byAgentRaw = new Map<string, { sum: number; count: number }>();
+
+  for (const r of rows) {
+    distribution[r.rating - 1] += 1;
+    sum += r.rating;
+    if (r.agentId) {
+      const cur = byAgentRaw.get(r.agentId) ?? { sum: 0, count: 0 };
+      cur.sum += r.rating;
+      cur.count += 1;
+      byAgentRaw.set(r.agentId, cur);
+    }
+  }
+
+  const agentIds = [...byAgentRaw.keys()];
+  const agentRows = agentIds.length
+    ? await db.select({ id: users.id, fullName: users.fullName }).from(users).where(inArray(users.id, agentIds))
+    : [];
+  const nameById = new Map(agentRows.map((a) => [a.id, a.fullName]));
+
+  const byAgent: CsatAgentStat[] = agentIds
+    .map((id) => {
+      const { sum: s, count } = byAgentRaw.get(id)!;
+      return { agentId: id, name: nameById.get(id) ?? "—", avgRating: s / count, responseCount: count };
+    })
+    .sort((a, b) => b.avgRating - a.avgRating);
+
+  return {
+    totalResponses: rows.length,
+    avgRating: rows.length ? sum / rows.length : null,
+    distribution,
+    byAgent,
+  };
 }

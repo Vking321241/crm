@@ -597,6 +597,13 @@ export const conversations = pgTable(
     // — a paused conversation stays open/pending, just flagged.
     pausedAt: timestamp("paused_at", { withTimezone: true }),
     pauseReason: text("pause_reason"), // 'manual' | 'business_hours'
+    // Set when the "Enviar nota para atendimento (pesquisa)" close
+    // flow sends its satisfaction-survey message — marks this
+    // conversation as awaiting a 1-5 rating reply. Cleared once a
+    // reply is captured (see the webhook's CSAT-parsing branch and
+    // csat_responses below) so a later, unrelated "5" in the same
+    // (reopened) conversation is never mistaken for a new rating.
+    surveyRequestedAt: timestamp("survey_requested_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -604,6 +611,36 @@ export const conversations = pgTable(
     index("idx_conversations_account").on(table.accountId),
     uniqueIndex("idx_conversations_account_contact").on(table.accountId, table.contactId),
     index("idx_conversations_department").on(table.departmentId),
+  ],
+);
+
+// ------------------------------------------------------------
+// csat_responses — one row per conversation whose customer replied
+// to the satisfaction survey with a 1-5 rating. `agentId` is
+// snapshotted from conversations.assigned_agent_id at capture time
+// (not a live join) so a later reassignment doesn't rewrite history.
+// ------------------------------------------------------------
+export const csatResponses = pgTable(
+  "csat_responses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => users.id, { onDelete: "set null" }),
+    rating: integer("rating").notNull(),
+    rawText: text("raw_text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_csat_responses_conversation").on(table.conversationId),
+    index("idx_csat_responses_account_created").on(table.accountId, table.createdAt),
   ],
 );
 
