@@ -1,5 +1,5 @@
 // ============================================================
-// GET /api/conversations
+// GET  /api/conversations
 //
 // Lists the caller's account conversations, contact joined in,
 // newest-first. Supports `?status=open|pending|closed` and
@@ -12,12 +12,20 @@
 // param needed. "Pendentes" is the one exception: it stays the
 // shared department queue (unfiltered) so anyone can pick a waiting
 // conversation up, matching how transfers/hand-offs actually work.
+//
+// POST /api/conversations — "iniciar conversa" from a contact's own
+// page. Body: { contact_id }. Find-or-create: a contact only ever
+// has one conversation (same invariant the webhook's own
+// findOrCreateConversation enforces on the inbound side), so this
+// just returns the existing one if there already is one rather than
+// erroring — clicking "Iniciar conversa" on a contact you already
+// talked to should jump you into that thread, not fail. Agent+.
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
 
-import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
+import { getCurrentAccount, requireRole, toErrorResponse } from "@/lib/auth/account";
 import { conversations, contacts, conversationStatusEnum } from "@/db/schema";
 import { roleHasFullAccess } from "@/lib/auth/permissions";
 import { toApiConversation, loadTagsByContactId } from "./_shared";
@@ -72,6 +80,47 @@ export async function GET(request: Request) {
         toApiConversation(r.conversation, r.contact, tagsByContact.get(r.contact.id)),
       ),
     });
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const ctx = await requireRole("agent");
+
+    const body = (await request.json().catch(() => null)) as { contact_id?: unknown } | null;
+    const contactId = typeof body?.contact_id === "string" ? body.contact_id : "";
+    if (!contactId) {
+      return NextResponse.json({ error: "'contact_id' is required" }, { status: 400 });
+    }
+
+    const [contact] = await ctx.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(and(eq(contacts.id, contactId), eq(contacts.accountId, ctx.accountId)))
+      .limit(1);
+    if (!contact) {
+      return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    }
+
+    const [existing] = await ctx.db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.accountId, ctx.accountId), eq(conversations.contactId, contactId)))
+      .orderBy(asc(conversations.createdAt))
+      .limit(1);
+
+    if (existing) {
+      return NextResponse.json({ conversation: toApiConversation(existing) });
+    }
+
+    const [created] = await ctx.db
+      .insert(conversations)
+      .values({ accountId: ctx.accountId, userId: ctx.userId, contactId })
+      .returning();
+
+    return NextResponse.json({ conversation: toApiConversation(created) }, { status: 201 });
   } catch (err) {
     return toErrorResponse(err);
   }

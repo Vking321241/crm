@@ -373,6 +373,7 @@
       "tabs": {
         "details": "Details",
         "activity": "Activity",
+        "tags": "Tags",
         "notes": "Notes",
         "custom": "Custom Fields",
         "deals": "Deals",
@@ -388,6 +389,7 @@
       "contactInfo": "Contact Information",
       "unnamed": "Unknown",
       "contactDetailsDesc": "Contact details",
+      "name": "Name",
       "phone": "Phone",
       "email": "Email",
       "company": "Company",

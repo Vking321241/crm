@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type {
   Contact,
@@ -34,6 +35,7 @@ import {
   Trash2,
   Save,
   Users,
+  MessageSquare,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -51,10 +53,12 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
+  const router = useRouter();
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
+  const [startingConversation, setStartingConversation] = useState(false);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -148,6 +152,26 @@ export function ContactDetailView({
     await navigator.clipboard.writeText(contact.phone);
     setCopiedPhone(true);
     setTimeout(() => setCopiedPhone(false), 2000);
+  }
+
+  async function startConversation() {
+    if (!contactId) return;
+    setStartingConversation(true);
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_id: contactId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error || 'Falha ao iniciar conversa');
+        return;
+      }
+      router.push(`/inbox?c=${data.conversation.id}`);
+    } finally {
+      setStartingConversation(false);
+    }
   }
 
   async function saveDetails() {
@@ -352,6 +376,19 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
+              <Button
+                onClick={startConversation}
+                disabled={startingConversation}
+                className="mt-3 w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+                size="sm"
+              >
+                {startingConversation ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <MessageSquare className="size-3.5" />
+                )}
+                Iniciar conversa
+              </Button>
             </SheetHeader>
 
             {/* Tabs */}
@@ -367,7 +404,7 @@ export function ContactDetailView({
                   value="tags"
                   className="data-active:bg-muted data-active:text-primary text-muted-foreground"
                 >
-                  {t('tabs.tags', { fallback: 'Tags' })}
+                  {t('tabs.tags')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="notes"
@@ -387,7 +424,7 @@ export function ContactDetailView({
               <TabsContent value="details" className="flex-1 overflow-y-auto px-4 py-3">
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">{t('company', { fallback: 'Name' })}</Label>
+                    <Label className="text-muted-foreground text-xs">{t('name')}</Label>
                     <Input
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
