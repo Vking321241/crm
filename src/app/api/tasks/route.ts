@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { conversationTasks, conversations, contacts } from "@/db/schema";
+import { isTaskOverdue } from "@/lib/tasks-overdue";
 
 export async function GET() {
   try {
@@ -27,7 +28,6 @@ export async function GET() {
       .innerJoin(contacts, eq(conversations.contactId, contacts.id))
       .where(eq(conversationTasks.accountId, ctx.accountId));
 
-    const now = Date.now();
     const tasks = rows.map(({ task, conversationId, contactName, contactPhone }) => ({
       id: task.id,
       conversation_id: conversationId,
@@ -39,7 +39,7 @@ export async function GET() {
       status: task.status,
       completed_at: task.completedAt ?? undefined,
       send_as_message: task.sendAsMessage,
-      is_overdue: task.status === "pending" && new Date(task.dueAt).getTime() < now,
+      is_overdue: isTaskOverdue(task.dueAt, task.status),
       created_at: task.createdAt,
     }));
 

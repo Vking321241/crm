@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { CalendarClock, Check, Loader2, MessageSquareText, Plus, Trash2 } from 'lucide-react';
-import { format, isPast } from 'date-fns';
+import { format } from 'date-fns';
+import { isTaskOverdue } from '@/lib/tasks-overdue';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -179,7 +180,7 @@ export function ConversationTasks({ conversationId }: { conversationId: string }
           <p className="px-1 text-xs text-muted-foreground">Nenhuma tarefa agendada</p>
         ) : (
           tasks.map((task) => {
-            const overdue = task.status === 'pending' && isPast(new Date(task.due_at));
+            const overdue = isTaskOverdue(task.due_at, task.status);
             return (
               <div
                 key={task.id}
