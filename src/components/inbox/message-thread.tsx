@@ -46,6 +46,14 @@ import {
 } from "@/components/ui/dialog";
 import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
+import { EditMessageDialog } from "./edit-message-dialog";
+import { ForwardMessageDialog } from "./forward-message-dialog";
+
+// Mirrors MESSAGE_EDIT_WINDOW_MINUTES in src/lib/whatsapp/uazapi-client.ts
+// (not imported directly to avoid pulling the whole UAZAPI adapter into
+// the client bundle) — only gates whether the "Editar" menu item shows;
+// the actual edit call is re-checked server-side regardless.
+const MESSAGE_EDIT_WINDOW_MINUTES = 15;
 import {
   MessageComposer,
   CHAT_MEDIA_BUCKET,
@@ -179,6 +187,8 @@ export function MessageThread({
   const [contact, setContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<MessageWithReactions[]>([]);
   const [internalNotes, setInternalNotes] = useState<InternalNoteItem[]>([]);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<AccountMemberLite[]>([]);
@@ -564,6 +574,32 @@ export function MessageThread({
     },
     [authorLabelFor, tQuote],
   );
+
+  const handleDeleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!conversation) return;
+      const res = await fetch(`/api/conversations/${conversation.id}/messages/${messageId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Falha ao apagar mensagem");
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, deleted_at: new Date().toISOString() } : m)),
+      );
+    },
+    [conversation],
+  );
+
+  const handleMessageSaved = useCallback((messageId: string, text: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId ? { ...m, content_text: text, edited_at: new Date().toISOString() } : m,
+      ),
+    );
+  }, []);
 
   // Single reaction-set primitive. emoji === "" removes; otherwise adds/swaps.
   const postReaction = useCallback(
@@ -1058,6 +1094,15 @@ export function MessageThread({
                       const next = own?.emoji === emoji ? "" : emoji;
                       void postReaction(msg.id, next);
                     };
+                    const isOwnMsg = msg.sender_type === "agent" || msg.sender_type === "bot";
+                    const ageMinutes = (Date.now() - new Date(msg.created_at).getTime()) / 60_000;
+                    const canEdit =
+                      isOwnMsg &&
+                      !msg.deleted_at &&
+                      msg.content_type === "text" &&
+                      !msg.id.startsWith("temp-") &&
+                      ageMinutes <= MESSAGE_EDIT_WINDOW_MINUTES;
+                    const canDelete = isOwnMsg && !msg.deleted_at && !msg.id.startsWith("temp-");
                     return (
                       <MessageActions
                         key={msg.id}
@@ -1066,6 +1111,11 @@ export function MessageThread({
                         onReact={(emoji) => {
                           if (emoji) void postReaction(msg.id, emoji);
                         }}
+                        onForward={() => setForwardingMessage(msg)}
+                        canEdit={canEdit}
+                        onEdit={() => setEditingMessage(msg)}
+                        canDelete={canDelete}
+                        onDelete={() => void handleDeleteMessage(msg.id)}
                       >
                         <MessageBubble
                           message={msg}
@@ -1110,6 +1160,19 @@ export function MessageThread({
         reason={conversation.acknowledgment_reason}
         onStart={handleAcknowledgeStart}
         onDismiss={handleAcknowledgeDismiss}
+      />
+
+      <EditMessageDialog
+        conversationId={conversation.id}
+        message={editingMessage}
+        onOpenChange={(open) => !open && setEditingMessage(null)}
+        onSaved={handleMessageSaved}
+      />
+
+      <ForwardMessageDialog
+        message={forwardingMessage}
+        currentConversationId={conversation.id}
+        onOpenChange={(open) => !open && setForwardingMessage(null)}
       />
     </div>
   );

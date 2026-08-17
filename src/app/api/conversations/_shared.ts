@@ -114,6 +114,8 @@ export function toApiMessage(row: MessageRow) {
     reply_to_message_id: row.replyToMessageId ?? undefined,
     interactive_reply_id: row.interactiveReplyId ?? undefined,
     interactive_payload: row.interactivePayload ?? undefined,
+    deleted_at: row.deletedAt ?? undefined,
+    edited_at: row.editedAt ?? undefined,
   };
 }
 

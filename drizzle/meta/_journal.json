@@ -176,6 +176,13 @@
       "when": 1786994524365,
       "tag": "0024_sour_speed_demon",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786998325647,
+      "tag": "0025_sturdy_gambit",
+      "breakpoints": true
     }
   ]
 }

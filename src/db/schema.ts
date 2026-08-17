@@ -660,6 +660,17 @@ export const messages = pgTable(
     }),
     interactivePayload: jsonb("interactive_payload"),
     interactiveReplyId: text("interactive_reply_id"),
+    // Set on "delete for everyone" — either an agent deleting their
+    // own send from the CRM, or a customer revoking a message on
+    // their own phone (see the webhook's "revoke" handling). The
+    // bubble renders a "Mensagem apagada" placeholder at reduced
+    // opacity instead of contentText/mediaUrl once this is set;
+    // neither column is cleared, just no longer shown.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    // Set when an agent edits their own already-sent text within
+    // MESSAGE_EDIT_WINDOW_MINUTES — contentText holds the new text;
+    // this just drives the "(editado)" badge.
+    editedAt: timestamp("edited_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

@@ -367,6 +367,53 @@ export async function sendMedia(
   };
 }
 
+/** How long after sending a text message can still be edited —
+ *  mirrors WhatsApp's own 15-minute edit window. Shared by the API
+ *  route (server-side enforcement) and the message context menu
+ *  (hides "Editar" once expired), so the two never drift. */
+export const MESSAGE_EDIT_WINDOW_MINUTES = 15;
+
+/**
+ * "Delete for everyone" — revokes a message this instance sent.
+ * Same unverified-endpoint caveat as the rest of this file: `id` is
+ * the convention `sendReaction`/`downloadMedia` already use
+ * successfully for "which message", so it's the first guess here too.
+ */
+export async function deleteMessage(
+  cfg: UazapiInstanceConfig,
+  to: string,
+  messageId: string,
+): Promise<UazapiResult<null>> {
+  if (!cfg.token) return { ok: false, error: "Instance is not connected" };
+  const res = await request(
+    `${trimBase(cfg.baseUrl)}/message/delete`,
+    { token: cfg.token },
+    { number: toDestination(to), id: messageId },
+  );
+  return res.ok ? { ok: true, data: null } : { ok: false, error: res.error };
+}
+
+/**
+ * Edits the text of a message this instance already sent — WhatsApp
+ * itself only allows this within a short window after sending (see
+ * MESSAGE_EDIT_WINDOW_MINUTES), enforced both client-side (the menu
+ * option disappears) and server-side in the API route that calls this.
+ */
+export async function editMessage(
+  cfg: UazapiInstanceConfig,
+  to: string,
+  messageId: string,
+  text: string,
+): Promise<UazapiResult<null>> {
+  if (!cfg.token) return { ok: false, error: "Instance is not connected" };
+  const res = await request(
+    `${trimBase(cfg.baseUrl)}/message/edit`,
+    { token: cfg.token },
+    { number: toDestination(to), id: messageId, text },
+  );
+  return res.ok ? { ok: true, data: null } : { ok: false, error: res.error };
+}
+
 /**
  * Looks up a contact's current WhatsApp profile picture URL.
  * Endpoint/field names are a best guess (mirroring the
@@ -550,7 +597,7 @@ export interface NormalizedInboundMessage {
   /** True when a fromMe message was sent from outside the platform (the phone itself). */
   external: boolean;
   contactName: string | null;
-  type: "text" | "image" | "audio" | "video" | "document" | "location" | "reaction";
+  type: "text" | "image" | "audio" | "video" | "document" | "location" | "reaction" | "revoke";
   text: string | null;
   mediaUrl: string | null;
   mediaBase64: string | null;
@@ -560,6 +607,9 @@ export interface NormalizedInboundMessage {
    *  to, and the emoji (empty string means the reaction was removed). */
   reactionTargetId?: string | null;
   reactionEmoji?: string | null;
+  /** Only set when type === "revoke": the messageId the customer
+   *  deleted ("delete for everyone" on their own phone). */
+  revokeTargetId?: string | null;
 }
 
 function onlyDigits(s: unknown): string {
@@ -690,6 +740,41 @@ export function parseUazapiWebhook(body: unknown): NormalizedInboundMessage | nu
     }
     console.error(
       "[parseUazapiWebhook] DIAGNOSTIC reaction-shaped payload with no resolvable target message id:",
+      JSON.stringify(body).slice(0, 2000),
+    );
+  }
+
+  // A customer deleting a message they sent ("delete for everyone" on
+  // their own phone). Unverified against a live payload — Baileys-style
+  // backends (which UAZAPI's other message-type naming, e.g.
+  // "ReactionMessage", suggests this one is built on) represent this as
+  // a protocolMessage carrying the original message's key, not a new
+  // message of its own. Guessing the same shape here; falls through to
+  // the normal branches (and is silently dropped further down, same as
+  // any other unrecognized type) if none of these match.
+  if (/revoke|protocolmessage/.test(rawType)) {
+    const protocol = (content.protocolMessage ?? m.protocolMessage ?? {}) as Record<string, unknown>;
+    const protocolKey = (protocol.key ?? content.key ?? {}) as Record<string, unknown>;
+    const revokeTargetId = (protocolKey.id ?? protocolKey.ID ?? m.reaction ?? null) as string | null;
+    if (revokeTargetId) {
+      return {
+        phone,
+        lid,
+        isGroup,
+        fromMe,
+        external: fromMe,
+        contactName,
+        type: "revoke",
+        text: null,
+        mediaUrl: null,
+        mediaBase64: null,
+        mimeType: null,
+        externalId: null,
+        revokeTargetId: String(revokeTargetId),
+      };
+    }
+    console.error(
+      "[parseUazapiWebhook] DIAGNOSTIC revoke-shaped payload with no resolvable target message id:",
       JSON.stringify(body).slice(0, 2000),
     );
   }

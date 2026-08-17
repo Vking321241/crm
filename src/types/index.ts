@@ -276,6 +276,14 @@ export interface Message {
    * badge in the inbox. Migration 033.
    */
   ai_generated?: boolean;
+  /** Set once this message was "deleted for everyone" — by the agent
+   *  who sent it, or by the customer revoking their own message. The
+   *  bubble shows a "Mensagem apagada" placeholder instead of the
+   *  real content when this is present. */
+  deleted_at?: string;
+  /** Set when an agent edited their own already-sent text within the
+   *  edit window — drives the "(editado)" badge. */
+  edited_at?: string;
 }
 
 export type ReactionActor = 'customer' | 'agent';

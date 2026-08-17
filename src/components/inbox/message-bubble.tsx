@@ -14,6 +14,7 @@ import {
   ImageOff,
   CornerDownLeft,
   Sparkles,
+  Ban,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -128,11 +129,23 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
 }
 
 function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof useTranslations> }) {
+  if (message.deleted_at) {
+    return (
+      <p className="flex items-center gap-1.5 text-sm italic text-muted-foreground">
+        <Ban className="h-3.5 w-3.5 shrink-0" />
+        Mensagem apagada
+      </p>
+    );
+  }
+
   switch (message.content_type) {
     case "text":
       return (
         <p className="whitespace-pre-wrap break-words text-sm">
           {message.content_text}
+          {message.edited_at && (
+            <span className="ml-1 text-[10px] italic opacity-70">(editado)</span>
+          )}
         </p>
       );
 
@@ -311,6 +324,7 @@ export function MessageBubble({
           isAgent
             ? "rounded-br-md bg-primary text-primary-foreground"
             : "rounded-bl-md bg-muted text-foreground",
+          message.deleted_at && "opacity-50",
         )}
       >
         {reply && (

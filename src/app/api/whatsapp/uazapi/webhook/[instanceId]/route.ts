@@ -201,6 +201,21 @@ async function processInbound(instanceId: string, body: unknown) {
     return;
   }
 
+  // Someone revoked ("delete for everyone") a message on their own
+  // phone — the customer, or the connected number's own phone acting
+  // outside the CRM (fromMe). Either way, mark it deleted here too
+  // rather than removing the row, so the bubble can show a "Mensagem
+  // apagada" placeholder in its place instead of just vanishing.
+  if (parsed.type === "revoke") {
+    if (!parsed.revokeTargetId) return;
+    await db
+      .update(messages)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(messages.conversationId, conversation.id), eq(messages.messageId, parsed.revokeTargetId)))
+      .catch((err) => console.error("[uazapi webhook] revoke update error:", err));
+    return;
+  }
+
   // Best-effort: pull the contact's WhatsApp profile photo the first
   // time we hear from them (never overwrites one they/we already
   // have). Re-hosted through our own storage, same reasoning as
