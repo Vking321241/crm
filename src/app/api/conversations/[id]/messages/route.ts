@@ -23,6 +23,7 @@ import { toApiMessage, toApiReaction, loadOwnedConversation } from "../../_share
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import { loadInstance, toUazapiConfig } from "@/lib/whatsapp/instance-context";
 import { sendText, sendMedia, type UazapiMediaType } from "@/lib/whatsapp/uazapi-client";
+import { readAccountFileAsBase64 } from "@/lib/storage/server-files";
 
 const MEDIA_TYPES = new Set(["image", "video", "document", "audio"]);
 
@@ -137,16 +138,26 @@ export async function POST(
     }
     const cfg = toUazapiConfig(instance);
 
-    const result = isMedia
-      ? await sendMedia(
-          cfg,
-          contact.phone,
-          body.message_type as UazapiMediaType,
-          body.media_url!,
-          body.content_text || undefined,
-          body.filename,
-        )
-      : await sendText(cfg, contact.phone, body.content_text!.trim());
+    let result;
+    if (isMedia) {
+      // UAZAPI can't authenticate against our own /api/files/<id>
+      // URL, so hand it the raw bytes as base64 instead of a URL it
+      // has no way to fetch — see src/lib/storage/server-files.ts.
+      const stored = await readAccountFileAsBase64(body.media_url!, ctx.accountId);
+      if (!stored) {
+        return NextResponse.json({ error: "Arquivo de mídia não encontrado" }, { status: 400 });
+      }
+      result = await sendMedia(
+        cfg,
+        contact.phone,
+        body.message_type as UazapiMediaType,
+        stored.base64,
+        body.content_text || undefined,
+        body.filename,
+      );
+    } else {
+      result = await sendText(cfg, contact.phone, body.content_text!.trim());
+    }
 
     const [inserted] = await ctx.db
       .insert(messages)

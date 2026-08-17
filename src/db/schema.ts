@@ -92,6 +92,17 @@ export const accounts = pgTable(
     // whatsapp_instances.uazapi_token (src/lib/whatsapp/encryption.ts).
     uazapiServerUrl: text("uazapi_server_url"),
     uazapiAdminToken: text("uazapi_admin_token"),
+    // Kiwify subscription state (see src/app/api/kiwify/webhook and
+    // src/app/(dashboard)/subscription). `subscriptionPlan` is the
+    // seat-tier key ('3'|'5'|'7'|'10', matching the Kiwify checkout
+    // links) — kept separate from maxAgentSeats so an expired/
+    // canceled subscription doesn't silently rewrite the seat count
+    // an admin may have set manually.
+    subscriptionPlan: text("subscription_plan"),
+    subscriptionStatus: text("subscription_status").notNull().default("none"), // 'none' | 'active' | 'past_due' | 'canceled'
+    subscriptionRenewsAt: timestamp("subscription_renews_at", { withTimezone: true }),
+    subscriptionCanceledAt: timestamp("subscription_canceled_at", { withTimezone: true }),
+    kiwifyCustomerEmail: text("kiwify_customer_email"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -511,6 +522,46 @@ export const contactNotes = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("idx_contact_notes_contact").on(table.contactId)],
+);
+
+// ------------------------------------------------------------
+// conversation_internal_notes — a "post-it" dropped straight into
+// the message timeline from the composer's note button. Distinct
+// from `contact_notes` (a running free-text log in the sidebar) —
+// this renders inline among the messages, with a per-agent read
+// receipt (internal_note_reads) so a team can tell who's actually
+// seen it. Never reaches the customer — no UAZAPI send, ever.
+// ------------------------------------------------------------
+export const conversationInternalNotes = pgTable(
+  "conversation_internal_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_conversation_internal_notes_conversation").on(table.conversationId, table.createdAt)],
+);
+
+export const internalNoteReads = pgTable(
+  "internal_note_reads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    noteId: uuid("note_id")
+      .notNull()
+      .references(() => conversationInternalNotes.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("idx_internal_note_reads_unique").on(table.noteId, table.userId)],
 );
 
 // ------------------------------------------------------------

@@ -20,9 +20,11 @@ import {
   Loader2,
   Zap,
   MessageSquare,
+  StickyNote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -103,6 +105,9 @@ interface MessageComposerProps {
   onClearReply?: () => void;
   /** Substituted into {nome_do_cliente} in quick-reply text. */
   contactName?: string;
+  /** Drops an internal-only note into the timeline — never reaches
+   *  the customer. Omit to hide the note button entirely. */
+  onAddNote?: (body: string) => Promise<void> | void;
 }
 
 /** Fills the small set of variables quick replies support. Unknown
@@ -130,6 +135,7 @@ export function MessageComposer({
   replyTo,
   onClearReply,
   contactName,
+  onAddNote,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
 
@@ -138,6 +144,9 @@ export function MessageComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
 
   // "/" trigger — the whole account's quick replies are a small,
   // rarely-changing list, so one fetch per mount (not per keystroke)
@@ -650,6 +659,48 @@ export function MessageComposer({
           >
             <Zap className="h-4 w-4" />
           </GatedButton>
+
+          {onAddNote && (
+            <Popover open={noteOpen} onOpenChange={setNoteOpen}>
+              <PopoverTrigger
+                disabled={readOnly}
+                title="Nota interna — não vai para o cliente"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <StickyNote className="h-4 w-4" />
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Visível só para a equipe — o cliente nunca vê isso.
+                </p>
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Escreva a nota..."
+                  rows={3}
+                  className="w-full resize-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50"
+                />
+                <Button
+                  size="sm"
+                  className="w-full"
+                  disabled={!noteText.trim() || savingNote}
+                  onClick={async () => {
+                    setSavingNote(true);
+                    try {
+                      await onAddNote(noteText.trim());
+                      setNoteText("");
+                      setNoteOpen(false);
+                    } finally {
+                      setSavingNote(false);
+                    }
+                  }}
+                >
+                  {savingNote && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Adicionar nota
+                </Button>
+              </PopoverContent>
+            </Popover>
+          )}
 
           <textarea
             ref={textareaRef}

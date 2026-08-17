@@ -26,6 +26,7 @@ import {
   CircleX,
   PauseCircle,
   PlayCircle,
+  StickyNote,
 } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -99,17 +100,44 @@ function formatDateSeparator(dateStr: string, t: ReturnType<typeof useTranslatio
   return format(date, "MMMM d, yyyy");
 }
 
-function groupMessagesByDate(messages: MessageWithReactions[]) {
-  const groups: { date: string; messages: MessageWithReactions[] }[] = [];
+interface InternalNoteItem {
+  id: string;
+  conversation_id: string;
+  author_id?: string;
+  author_name?: string;
+  body: string;
+  created_at: string;
+  read_by: { user_id: string; name: string | null }[];
+  read_by_me: boolean;
+}
+
+type TimelineItem =
+  | { kind: "message"; created_at: string; message: MessageWithReactions }
+  | { kind: "note"; created_at: string; note: InternalNoteItem };
+
+function buildTimeline(
+  messages: MessageWithReactions[],
+  notes: InternalNoteItem[],
+): TimelineItem[] {
+  const items: TimelineItem[] = [
+    ...messages.map((message): TimelineItem => ({ kind: "message", created_at: message.created_at, message })),
+    ...notes.map((note): TimelineItem => ({ kind: "note", created_at: note.created_at, note })),
+  ];
+  items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  return items;
+}
+
+function groupTimelineByDate(items: TimelineItem[]) {
+  const groups: { date: string; items: TimelineItem[] }[] = [];
   let currentDate = "";
 
-  for (const msg of messages) {
-    const day = format(new Date(msg.created_at), "yyyy-MM-dd");
+  for (const item of items) {
+    const day = format(new Date(item.created_at), "yyyy-MM-dd");
     if (day !== currentDate) {
       currentDate = day;
-      groups.push({ date: msg.created_at, messages: [msg] });
+      groups.push({ date: item.created_at, items: [item] });
     } else {
-      groups[groups.length - 1].messages.push(msg);
+      groups[groups.length - 1].items.push(item);
     }
   }
 
@@ -143,6 +171,7 @@ export function MessageThread({
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [contact, setContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<MessageWithReactions[]>([]);
+  const [internalNotes, setInternalNotes] = useState<InternalNoteItem[]>([]);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<AccountMemberLite[]>([]);
@@ -207,9 +236,10 @@ export function MessageThread({
     async (id: string, opts: { showSpinner: boolean }) => {
       if (opts.showSpinner) setLoading(true);
       try {
-        const [convRes, msgRes] = await Promise.all([
+        const [convRes, msgRes, notesRes] = await Promise.all([
           fetch(`/api/conversations/${id}`, { cache: "no-store" }),
           fetch(`/api/conversations/${id}/messages`, { cache: "no-store" }),
+          fetch(`/api/conversations/${id}/internal-notes`, { cache: "no-store" }),
         ]);
         if (!convRes.ok || !msgRes.ok) return;
         const convData = await convRes.json();
@@ -218,6 +248,10 @@ export function MessageThread({
         setConversation(conv);
         setContact(conv.contact ?? null);
         setMessages((msgData.messages ?? []) as MessageWithReactions[]);
+        if (notesRes.ok) {
+          const notesData = await notesRes.json();
+          setInternalNotes((notesData.notes ?? []) as InternalNoteItem[]);
+        }
         onConversationLoadedRef.current?.(conv);
       } catch (err) {
         console.error("Failed to fetch thread:", err);
@@ -456,6 +490,45 @@ export function MessageThread({
     }
   }, [conversation]);
 
+  const handleAddNote = useCallback(
+    async (body: string) => {
+      if (!conversation) return;
+      const res = await fetch(`/api/conversations/${conversation.id}/internal-notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      if (!res.ok) {
+        toast.error("Falha ao adicionar a nota");
+        return;
+      }
+      const data = await res.json();
+      setInternalNotes((prev) => [...prev, data.note as InternalNoteItem]);
+    },
+    [conversation],
+  );
+
+  const handleMarkNoteRead = useCallback(
+    async (noteId: string) => {
+      if (!conversation || !user) return;
+      setInternalNotes((prev) =>
+        prev.map((n) =>
+          n.id === noteId && !n.read_by_me
+            ? {
+                ...n,
+                read_by_me: true,
+                read_by: [...n.read_by, { user_id: user.id, name: null }],
+              }
+            : n,
+        ),
+      );
+      await fetch(`/api/conversations/${conversation.id}/internal-notes/${noteId}`, {
+        method: "POST",
+      }).catch(() => {});
+    },
+    [conversation, user],
+  );
+
   // Build a quick id → Message map so reply quotes can be rendered without
   // an extra fetch — the thread already holds the full conversation.
   const messagesById = useMemo(() => {
@@ -621,7 +694,7 @@ export function MessageThread({
   }
 
   const displayName = contact.name || contact.phone;
-  const messageGroups = groupMessagesByDate(messages);
+  const timelineGroups = groupTimelineByDate(buildTimeline(messages, internalNotes));
   const currentStatus =
     conversation.status === "closed"
       ? { label: "Closed", value: "closed" as const, color: "text-muted-foreground" }
@@ -881,13 +954,13 @@ export function MessageThread({
           <div className="flex items-center justify-center py-12">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && internalNotes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <p className="text-sm text-muted-foreground">{t("noMessagesYet")}</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {messageGroups.map((group) => (
+            {timelineGroups.map((group) => (
               <div key={group.date}>
                 <div className="mb-4 flex items-center justify-center">
                   <span className="rounded-full bg-muted px-3 py-1 text-[10px] font-medium text-muted-foreground">
@@ -895,7 +968,43 @@ export function MessageThread({
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {group.messages.map((msg) => {
+                  {group.items.map((item) => {
+                    if (item.kind === "note") {
+                      const note = item.note;
+                      return (
+                        <div key={`note-${note.id}`} className="flex justify-center">
+                          <div className="w-full max-w-md rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-400">
+                              <StickyNote className="size-3" />
+                              Nota interna · {note.author_name ?? "Equipe"}
+                            </div>
+                            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                              {note.body}
+                            </p>
+                            <div className="mt-1.5 flex items-center justify-between gap-2">
+                              <span className="text-[10px] text-muted-foreground">
+                                {format(new Date(note.created_at), "HH:mm")}
+                                {note.read_by.length > 0
+                                  ? ` · lida por ${note.read_by.length}`
+                                  : ""}
+                              </span>
+                              {!note.read_by_me && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkNoteRead(note.id)}
+                                  className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-300 hover:bg-amber-500/30"
+                                >
+                                  <Check className="size-3" />
+                                  Marcar como lida
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const msg = item.message;
                     const parent = msg.reply_to_message_id
                       ? messagesById.get(msg.reply_to_message_id)
                       : null;
@@ -947,6 +1056,7 @@ export function MessageThread({
         conversationId={conversation.id}
         onSend={handleSend}
         onSendMedia={handleSendMedia}
+        onAddNote={handleAddNote}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
         contactName={contact.name ?? undefined}

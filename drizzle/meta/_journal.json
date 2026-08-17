@@ -85,6 +85,20 @@
       "when": 1786946602579,
       "tag": "0011_chunky_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786947889217,
+      "tag": "0012_nebulous_arachne",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786948236456,
+      "tag": "0013_lumpy_radioactive_man",
+      "breakpoints": true
     }
   ]
 }

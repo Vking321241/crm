@@ -9,8 +9,10 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
-import { messageReactions } from "@/db/schema";
+import { messageReactions, messages, contacts } from "@/db/schema";
 import { loadOwnedConversation } from "../../../_shared";
+import { loadInstance, toUazapiConfig } from "@/lib/whatsapp/instance-context";
+import { sendReaction } from "@/lib/whatsapp/uazapi-client";
 
 export async function DELETE(
   _request: Request,
@@ -35,6 +37,31 @@ export async function DELETE(
           eq(messageReactions.actorId, ctx.userId),
         ),
       );
+
+    // Best-effort: clear the reaction on the customer's phone too
+    // (empty text removes a reaction in UAZAPI's API).
+    try {
+      const [message] = await ctx.db
+        .select({ externalId: messages.messageId })
+        .from(messages)
+        .where(eq(messages.id, messageId))
+        .limit(1);
+      if (message?.externalId) {
+        const instance = await loadInstance(ctx, ctx.accountId);
+        if (instance?.uazapiUrl && instance.token) {
+          const [contact] = await ctx.db
+            .select({ phone: contacts.phone })
+            .from(contacts)
+            .where(eq(contacts.id, conversation.contactId))
+            .limit(1);
+          if (contact) {
+            await sendReaction(toUazapiConfig(instance), contact.phone, message.externalId, "");
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[DELETE /reactions] UAZAPI reaction clear error:", err);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

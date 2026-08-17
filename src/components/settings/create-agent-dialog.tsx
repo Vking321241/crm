@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, UserPlus } from 'lucide-react';
 
+import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -40,9 +41,24 @@ function defaultModuleSet(): Set<PermissionModule> {
   return new Set(DEFAULT_AGENT_MODULES);
 }
 
+function slugify(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+}
+
 export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgentDialogProps) {
+  const { account } = useAuth();
+  const domain = account?.email_domain ?? null;
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  // Once the admin types into the e-mail field directly, stop
+  // auto-filling it from the name — a manual edit always wins.
+  const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState('');
   const [modules, setModules] = useState<Set<PermissionModule>>(defaultModuleSet);
   const [submitting, setSubmitting] = useState(false);
@@ -50,9 +66,18 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   function reset() {
     setName('');
     setEmail('');
+    setEmailTouched(false);
     setPassword('');
     setModules(defaultModuleSet());
     setSubmitting(false);
+  }
+
+  function handleNameChange(value: string) {
+    setName(value);
+    if (!emailTouched && domain) {
+      const slug = slugify(value);
+      setEmail(slug ? `${slug}@${domain}` : '');
+    }
   }
 
   function toggleModule(mod: PermissionModule, checked: boolean) {
@@ -129,7 +154,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               <Input
                 placeholder="Ex: João Silva"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => handleNameChange(e.target.value)}
                 maxLength={80}
                 className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
                 autoFocus
@@ -141,9 +166,17 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                 type="email"
                 placeholder="joao@empresa.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmailTouched(true);
+                  setEmail(e.target.value);
+                }}
                 className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
               />
+              {domain && !emailTouched && (
+                <p className="text-xs text-muted-foreground">
+                  Preenchido automaticamente com o domínio {domain} — edite se quiser outro.
+                </p>
+              )}
             </div>
           </div>
 

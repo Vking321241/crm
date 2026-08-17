@@ -19,6 +19,7 @@ import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel'
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { PermissionsMatrix } from '@/components/settings/permissions-matrix';
+import { SubscriptionPanel } from '@/components/settings/subscription-panel';
 import {
   resolveSection,
   visibleSections,
@@ -78,6 +79,7 @@ export default function SettingsPage() {
     deals: <DealsSettings />,
     members: <MembersTab />,
     permissions: <PermissionsMatrix />,
+    subscription: <SubscriptionPanel />,
   };
 
   return (

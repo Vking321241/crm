@@ -11,9 +11,11 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
-import { messages, messageReactions } from "@/db/schema";
+import { messages, messageReactions, contacts } from "@/db/schema";
 import { toApiReaction, loadOwnedConversation } from "../../_shared";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
+import { loadInstance, toUazapiConfig } from "@/lib/whatsapp/instance-context";
+import { sendReaction } from "@/lib/whatsapp/uazapi-client";
 
 export async function POST(
   request: Request,
@@ -39,7 +41,7 @@ export async function POST(
     }
 
     const [message] = await ctx.db
-      .select({ id: messages.id })
+      .select({ id: messages.id, externalId: messages.messageId })
       .from(messages)
       .where(and(eq(messages.id, body.message_id), eq(messages.conversationId, id)))
       .limit(1);
@@ -61,6 +63,30 @@ export async function POST(
         set: { emoji: body.emoji },
       })
       .returning();
+
+    // Best-effort: actually deliver the reaction to the customer's
+    // phone. Never fails the request — the reaction still shows in
+    // our own UI even if UAZAPI is unreachable/disconnected.
+    if (message.externalId) {
+      try {
+        const instance = await loadInstance(ctx, ctx.accountId);
+        if (instance?.uazapiUrl && instance.token) {
+          const [contact] = await ctx.db
+            .select({ phone: contacts.phone })
+            .from(contacts)
+            .where(eq(contacts.id, conversation.contactId))
+            .limit(1);
+          if (contact) {
+            const result = await sendReaction(toUazapiConfig(instance), contact.phone, message.externalId, body.emoji);
+            if (!result.ok) {
+              console.error("[POST /reactions] UAZAPI reaction send failed:", result.error);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[POST /reactions] UAZAPI reaction send error:", err);
+      }
+    }
 
     return NextResponse.json({ reaction: toApiReaction(row) }, { status: 201 });
   } catch (err) {

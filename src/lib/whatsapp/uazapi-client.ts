@@ -368,6 +368,54 @@ export async function sendMedia(
 }
 
 /**
+ * Looks up a contact's current WhatsApp profile picture URL.
+ * Endpoint/field names are a best guess (mirroring the
+ * `/instance/*` naming convention used elsewhere in this file) —
+ * adjust if your UAZAPI install differs, same as every other call
+ * here. Used once per contact (when they have no avatar yet) right
+ * after an inbound message — see the webhook handler.
+ */
+export async function getProfilePicture(
+  cfg: UazapiInstanceConfig,
+  phone: string,
+): Promise<UazapiResult<{ url: string }>> {
+  if (!cfg.token) return { ok: false, error: "Instance is not connected" };
+  const res = await request<Record<string, unknown>>(
+    `${trimBase(cfg.baseUrl)}/chat/GetProfileImage`,
+    { token: cfg.token },
+    { number: toDestination(phone) },
+  );
+  if (!res.ok || !res.data) return { ok: false, error: res.error };
+  const url = pick(res.data, "url", "profilePictureURL", "imgUrl", "link", "image");
+  if (!url) return { ok: false, error: "No profile picture available" };
+  return { ok: true, data: { url } };
+}
+
+/**
+ * Sends (or clears, with `emoji: ""`) a reaction on a specific
+ * WhatsApp message — the actual delivery UAZAPI's `/message/react`
+ * endpoint performs. Distinct from `messageReactions` in our own DB
+ * (src/db/schema.ts), which only tracks who reacted with what for
+ * our own UI; this is what makes it show up as a real reaction on
+ * the customer's phone. `externalMessageId` is `messages.messageId`
+ * (the UAZAPI/WhatsApp id), not our internal row id.
+ */
+export async function sendReaction(
+  cfg: UazapiInstanceConfig,
+  to: string,
+  externalMessageId: string,
+  emoji: string,
+): Promise<UazapiResult<null>> {
+  if (!cfg.token) return { ok: false, error: "Instance is not connected" };
+  const res = await request(
+    `${trimBase(cfg.baseUrl)}/message/react`,
+    { token: cfg.token },
+    { number: toDestination(to), text: emoji, id: externalMessageId },
+  );
+  return res.ok ? { ok: true, data: null } : { ok: false, error: res.error };
+}
+
+/**
  * Points the instance's webhook at this deployment's receiving
  * endpoint (`/api/whatsapp/uazapi/webhook`). Called right after a
  * successful connect so inbound messages start flowing immediately.

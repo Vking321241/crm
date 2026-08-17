@@ -12,9 +12,10 @@ import {
   DEFAULT_BUSINESS_HOURS,
 } from "@/db/schema";
 import { findExistingContactDb, isUniqueViolation } from "@/lib/contacts/dedupe";
-import { parseUazapiWebhook, sendText } from "@/lib/whatsapp/uazapi-client";
+import { parseUazapiWebhook, sendText, getProfilePicture } from "@/lib/whatsapp/uazapi-client";
 import { decrypt } from "@/lib/whatsapp/encryption";
 import { resolveAutoReply, isThrottled, type BusinessHours } from "@/lib/automations/auto-reply-rules";
+import { saveInboundMedia } from "@/lib/storage/server-files";
 
 // The UAZAPI webhook is registered per-instance
 // (`/api/whatsapp/uazapi/webhook/<instanceId>`, wired up by
@@ -98,7 +99,53 @@ async function processInbound(instanceId: string, body: unknown) {
   const conversation = await findOrCreateConversation(accountId, ownerUserId, contact.id);
   if (!conversation) return;
 
+  // Best-effort: pull the contact's WhatsApp profile photo the first
+  // time we hear from them (never overwrites one they/we already
+  // have). Re-hosted through our own storage, same reasoning as
+  // saveInboundMedia below — UAZAPI's own image URL isn't guaranteed
+  // to stay fetchable by the browser.
+  if (!contact.avatarUrl && row.uazapiUrl && row.uazapiToken) {
+    try {
+      const picResult = await getProfilePicture(
+        { baseUrl: row.uazapiUrl, token: decrypt(row.uazapiToken) },
+        parsed.phone,
+      );
+      if (picResult.ok && picResult.data) {
+        const savedUrl = await saveInboundMedia({
+          accountId,
+          sourceUrl: picResult.data.url,
+          sourceBase64: null,
+          mimeType: "image/jpeg",
+          instanceToken: decrypt(row.uazapiToken),
+        });
+        if (savedUrl) {
+          await db
+            .update(contacts)
+            .set({ avatarUrl: savedUrl, updatedAt: new Date() })
+            .where(eq(contacts.id, contact.id));
+        }
+      }
+    } catch (err) {
+      console.error("[uazapi webhook] profile picture fetch failed:", err);
+    }
+  }
+
   const contentText = parsed.type === "location" ? parsed.text : (parsed.text ?? null);
+
+  // Re-host inbound media through our own authenticated /api/files/<id>
+  // instead of trusting UAZAPI's URL to stay fetchable from the
+  // browser (auth/expiry) — see src/lib/storage/server-files.ts.
+  let mediaUrl = parsed.mediaUrl;
+  if ((parsed.mediaUrl || parsed.mediaBase64) && row.uazapiUrl && row.uazapiToken) {
+    mediaUrl = await saveInboundMedia({
+      accountId,
+      sourceUrl: parsed.mediaUrl,
+      sourceBase64: parsed.mediaBase64,
+      mimeType: parsed.mimeType,
+      instanceToken: decrypt(row.uazapiToken),
+      instanceBaseUrl: row.uazapiUrl,
+    });
+  }
 
   try {
     await db.insert(messages).values({
@@ -106,7 +153,7 @@ async function processInbound(instanceId: string, body: unknown) {
       senderType: parsed.fromMe ? "agent" : "customer",
       contentType: parsed.type,
       contentText,
-      mediaUrl: parsed.mediaUrl,
+      mediaUrl,
       messageId: parsed.externalId,
       status: "delivered",
     });

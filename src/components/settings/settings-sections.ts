@@ -1,5 +1,6 @@
 import {
   Coins,
+  CreditCard,
   LayoutGrid,
   MessageSquareText,
   Palette,
@@ -35,6 +36,7 @@ export const SETTINGS_SECTIONS = [
   'deals',
   'members',
   'permissions',
+  'subscription',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -83,6 +85,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   permissions: { id: 'permissions', label: 'Permissões', icon: ShieldCheck, group: 'workspace' },
+  subscription: { id: 'subscription', label: 'Assinatura', icon: CreditCard, group: 'workspace' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [
