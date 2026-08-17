@@ -53,14 +53,26 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
       return;
     }
 
-    const contactRes = await fetch(`/api/contacts/${encodeURIComponent(contact.id)}`, {
-      cache: "no-store",
-    }).catch(() => null);
+    // Notes come from the dedicated /notes endpoint, not the field
+    // embedded in GET /api/contacts/[id] — that one returns Drizzle's
+    // raw camelCase row shape (createdAt, noteText), while this
+    // component (and the add-note POST below) reads snake_case
+    // (created_at, note_text). Fetching from the wrong endpoint here
+    // meant ANY contact with at least one existing note crashed this
+    // panel the moment it rendered (`new Date(undefined)` in the date
+    // formatter below).
+    const [contactRes, notesRes] = await Promise.all([
+      fetch(`/api/contacts/${encodeURIComponent(contact.id)}`, { cache: "no-store" }).catch(() => null),
+      fetch(`/api/contacts/${encodeURIComponent(contact.id)}/notes`, { cache: "no-store" }).catch(() => null),
+    ]);
 
     if (contactRes?.ok) {
       const data = (await contactRes.json().catch(() => ({}))) as ContactDetailResponse;
-      setNotes(data.notes ?? []);
       setTags(data.tags ?? []);
+    }
+    if (notesRes?.ok) {
+      const notesData = (await notesRes.json().catch(() => ({}))) as { notes?: ContactNote[] };
+      setNotes(notesData.notes ?? []);
     }
   }, [contact]);
 
