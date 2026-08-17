@@ -8,7 +8,6 @@ import {
   contacts,
   messages,
   whatsappInstances,
-  webhookDebugLog,
 } from "@/db/schema";
 import { decrypt } from "@/lib/whatsapp/encryption";
 import { sendText } from "@/lib/whatsapp/uazapi-client";
@@ -41,15 +40,6 @@ export async function GET(request: Request) {
   }
 
   const now = new Date();
-
-  // TEMP — proves whether EasyPanel's Box scheduler is actually
-  // ticking every 5 minutes on its own, independent of anyone
-  // manually hitting this URL. Remove once confirmed (see
-  // GET /api/debug/webhook-log?token=... source="cron-tasks-ping").
-  await db
-    .insert(webhookDebugLog)
-    .values({ source: "cron-tasks-ping", body: { at: now.toISOString() } })
-    .catch(() => {});
 
   const due = await db
     .select({
