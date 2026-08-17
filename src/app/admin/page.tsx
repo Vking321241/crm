@@ -5,6 +5,7 @@ import { Building2 } from "lucide-react";
 import { db } from "@/db/client";
 import { accounts } from "@/db/schema";
 import { CreateClientDialog } from "./create-client-dialog";
+import { DeleteClientRowButton } from "./delete-client-row-button";
 
 export default async function AdminClientsPage() {
   const clients = await db
@@ -43,6 +44,7 @@ export default async function AdminClientsPage() {
                 <th className="px-4 py-3 font-medium">Cliente</th>
                 <th className="px-4 py-3 font-medium">Cota de usuários</th>
                 <th className="px-4 py-3 font-medium">Criado em</th>
+                <th className="px-4 py-3 font-medium text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -59,6 +61,9 @@ export default async function AdminClientsPage() {
                   <td className="px-4 py-3 text-muted-foreground">{client.maxAgentSeats}</td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {client.createdAt.toLocaleDateString("pt-BR")}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <DeleteClientRowButton accountId={client.id} clientName={client.name} />
                   </td>
                 </tr>
               ))}
