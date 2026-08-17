@@ -13,7 +13,7 @@ import {
   DEFAULT_BUSINESS_HOURS,
 } from "@/db/schema";
 import { findExistingContactDb, isUniqueViolation } from "@/lib/contacts/dedupe";
-import { parseUazapiWebhook, sendText, getProfilePicture } from "@/lib/whatsapp/uazapi-client";
+import { parseUazapiWebhook, sendText, getProfilePicture, downloadMedia } from "@/lib/whatsapp/uazapi-client";
 import { decrypt } from "@/lib/whatsapp/encryption";
 import { resolveAutoReply, isThrottled, type BusinessHours } from "@/lib/auto-reply/auto-reply-rules";
 import { saveInboundMedia } from "@/lib/storage/server-files";
@@ -203,13 +203,42 @@ async function processInbound(instanceId: string, body: unknown) {
   // Re-host inbound media through our own authenticated /api/files/<id>
   // instead of trusting UAZAPI's URL to stay fetchable from the
   // browser (auth/expiry) — see src/lib/storage/server-files.ts.
+  //
+  // WhatsApp media is end-to-end encrypted, so whatever URL/base64 a
+  // webhook payload happens to embed directly isn't reliably
+  // fetchable/decryptable on its own — UAZAPI's `message/download`
+  // endpoint (see uazapi-client.ts `downloadMedia`) is the confirmed
+  // way to get a real, usable file for a given message id (same
+  // operation a separately-built, working n8n flow against this
+  // account's UAZAPI server relies on). Called first for every media
+  // type; the webhook-embedded mediaUrl/mediaBase64 only kick in as a
+  // fallback if that call fails for some reason.
+  const isMediaType =
+    parsed.type === "image" || parsed.type === "audio" || parsed.type === "video" || parsed.type === "document";
   let mediaUrl = parsed.mediaUrl;
-  if ((parsed.mediaUrl || parsed.mediaBase64) && row.uazapiUrl && row.uazapiToken) {
+  let mediaBase64 = parsed.mediaBase64;
+  let mediaMimeType = parsed.mimeType;
+
+  if (isMediaType && parsed.externalId && row.uazapiUrl && row.uazapiToken) {
+    const dl = await downloadMedia({ baseUrl: row.uazapiUrl, token: decrypt(row.uazapiToken) }, parsed.externalId);
+    if (dl.ok && dl.data) {
+      mediaUrl = dl.data.fileURL;
+      mediaBase64 = null;
+      if (dl.data.mimeType) mediaMimeType = dl.data.mimeType;
+    } else {
+      console.error(
+        "[uazapi webhook] message/download failed, falling back to webhook-embedded media:",
+        dl.error,
+      );
+    }
+  }
+
+  if ((mediaUrl || mediaBase64) && row.uazapiUrl && row.uazapiToken) {
     mediaUrl = await saveInboundMedia({
       accountId,
-      sourceUrl: parsed.mediaUrl,
-      sourceBase64: parsed.mediaBase64,
-      mimeType: parsed.mimeType,
+      sourceUrl: mediaUrl,
+      sourceBase64: mediaBase64,
+      mimeType: mediaMimeType,
       instanceToken: decrypt(row.uazapiToken),
       instanceBaseUrl: row.uazapiUrl,
     });

@@ -415,6 +415,53 @@ export async function sendReaction(
   return res.ok ? { ok: true, data: null } : { ok: false, error: res.error };
 }
 
+export interface DownloadMediaResult {
+  fileURL: string;
+  mimeType?: string;
+}
+
+/**
+ * Resolves a fresh, fetchable download URL for a received media
+ * message (image/audio/video/document) — the `message/download`
+ * endpoint named (but never wired up) in this file's header comment.
+ * Media received over WhatsApp is end-to-end encrypted; whatever
+ * URL/base64 a webhook payload embeds directly is not reliably
+ * fetchable/decryptable on our own, so this is the one confirmed way
+ * to get a usable file — same operation an existing working n8n
+ * integration against this account's UAZAPI server calls
+ * ("downloadMedia" with the message id) before it can hand the file
+ * to anything else.
+ *
+ * Body/response field names mirror the `id`-for-message-id convention
+ * `sendReaction` above already uses successfully; the response shape
+ * itself is unverified against a live call from THIS codebase, so on
+ * failure the raw body is surfaced in `error` for the caller to log.
+ */
+export async function downloadMedia(
+  cfg: UazapiInstanceConfig,
+  messageId: string,
+): Promise<UazapiResult<DownloadMediaResult>> {
+  if (!cfg.token) return { ok: false, error: "Instance is not connected" };
+  const res = await request<Record<string, unknown>>(
+    `${trimBase(cfg.baseUrl)}/message/download`,
+    { token: cfg.token },
+    { id: messageId, messageid: messageId, transcribe: false },
+  );
+  if (!res.ok || !res.data) return { ok: false, error: res.error };
+
+  const fileURL = pick(res.data, "fileURL", "fileUrl", "url", "data.fileURL", "message.fileURL");
+  if (!fileURL) {
+    return {
+      ok: false,
+      error: `download response had no fileURL — raw: ${JSON.stringify(res.data).slice(0, 500)}`,
+    };
+  }
+  return {
+    ok: true,
+    data: { fileURL, mimeType: pick(res.data, "mimetype", "mimeType", "data.mimetype") },
+  };
+}
+
 /**
  * Points the instance's webhook at this deployment's receiving
  * endpoint (`/api/whatsapp/uazapi/webhook`). Called right after a
