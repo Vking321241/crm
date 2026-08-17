@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/hooks/use-auth';
-import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
 import type {
   Contact,
@@ -10,7 +8,6 @@ import type {
   ContactNote,
   CustomField,
   ContactCustomValue,
-  Deal,
 } from '@/components/contacts/types';
 import {
   Sheet,
@@ -36,7 +33,6 @@ import {
   Plus,
   Trash2,
   Save,
-  DollarSign,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -54,7 +50,6 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
-  const { defaultCurrency } = useAuth();
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -83,11 +78,6 @@ export function ContactDetailView({
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [savingCustom, setSavingCustom] = useState(false);
   const [loadingCustom, setLoadingCustom] = useState(false);
-
-  // Deals tab — the pipeline area is owned by another workstream; we
-  // only ever GET here, never write.
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [loadingDeals, setLoadingDeals] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!contactId) return;
@@ -144,32 +134,13 @@ export function ContactDetailView({
     }
   }, []);
 
-  const fetchDeals = useCallback(async () => {
-    if (!contactId) return;
-    setLoadingDeals(true);
-    try {
-      const res = await fetch(`/api/deals?contactId=${contactId}`);
-      if (res.ok) {
-        const data = (await res.json()) as { deals: Deal[] };
-        setDeals(data.deals ?? []);
-      } else {
-        setDeals([]);
-      }
-    } catch {
-      setDeals([]);
-    } finally {
-      setLoadingDeals(false);
-    }
-  }, [contactId]);
-
   useEffect(() => {
     if (open && contactId) {
       fetchAll();
       fetchTags();
       fetchCustomFieldDefs();
-      fetchDeals();
     }
-  }, [open, contactId, fetchAll, fetchTags, fetchCustomFieldDefs, fetchDeals]);
+  }, [open, contactId, fetchAll, fetchTags, fetchCustomFieldDefs]);
 
   async function copyPhone() {
     if (!contact) return;
@@ -385,12 +356,6 @@ export function ContactDetailView({
                 >
                   {t('tabs.custom')}
                 </TabsTrigger>
-                <TabsTrigger
-                  value="deals"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  {t('tabs.deals')}
-                </TabsTrigger>
               </TabsList>
 
               {/* Details Tab */}
@@ -595,52 +560,6 @@ export function ContactDetailView({
                       )}
                       {t('saveCustomFieldsBtn')}
                     </Button>
-                  </div>
-                )}
-              </TabsContent>
-
-              {/* Deals Tab */}
-              <TabsContent value="deals" className="flex-1 overflow-y-auto px-4 py-3">
-                {loadingDeals ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="size-5 animate-spin text-primary" />
-                  </div>
-                ) : deals.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t('dealsTab.noDeals')}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {deals.map((deal) => (
-                      <div
-                        key={deal.id}
-                        className="rounded-lg border border-border bg-muted/50 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground">
-                            {deal.title}
-                          </p>
-                        </div>
-                        <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <DollarSign className="size-3" />
-                            {formatCurrency(
-                              Number(deal.value ?? 0),
-                              deal.currency || defaultCurrency,
-                            )}
-                          </span>
-                          {deal.status && deal.status !== 'active' && (
-                            <span
-                              className={
-                                deal.status === 'won'
-                                  ? 'text-primary'
-                                  : 'text-red-400'
-                              }
-                            >
-                              {deal.status}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 )}
               </TabsContent>

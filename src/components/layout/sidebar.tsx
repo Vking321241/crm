@@ -95,7 +95,6 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, module: "reports" },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare, module: "inbox" },
   { href: "/tasks", labelKey: "tasks", icon: CalendarClock, module: "tasks" },
   { href: "/internal-chat", labelKey: "internalChat", icon: MessageCircle, module: "internal_chat" },
@@ -193,7 +192,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
         <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <Link href="/inbox" className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/icon-blue.png" alt="" className="h-8 w-8 shrink-0 object-contain" />
             <span className="text-sm font-semibold text-foreground">
@@ -214,9 +213,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
             {visibleNavItems.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              const isActive = pathname === item.href || pathname.startsWith(item.href);
 
               const showUnreadDot =
                 item.href === "/inbox" && totalUnread > 0 && !isActive;

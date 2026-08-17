@@ -12,7 +12,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           <ShieldCheck className="size-5 text-primary" />
           <span className="font-semibold">DivaryTalk — Painel da plataforma</span>
         </Link>
-        <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
+        <Link href="/inbox" className="text-sm text-muted-foreground hover:text-foreground">
           Ir para meu painel
         </Link>
       </header>

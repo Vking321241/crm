@@ -34,18 +34,18 @@ describe("middleware", () => {
       requestWithCookie("https://app.test/login", signedCookie("session-1")),
     );
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toContain("/dashboard");
+    expect(res.headers.get("location")).toContain("/inbox");
   });
 
   it("redirects an unauthenticated visitor from a protected page to /login", () => {
-    const res = middleware(requestWithCookie("https://app.test/dashboard"));
+    const res = middleware(requestWithCookie("https://app.test/inbox"));
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/login");
   });
 
   it("redirects a visitor with a tampered session cookie to /login", () => {
     const res = middleware(
-      requestWithCookie("https://app.test/dashboard", "session-1.not-a-real-signature"),
+      requestWithCookie("https://app.test/inbox", "session-1.not-a-real-signature"),
     );
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/login");
@@ -53,7 +53,7 @@ describe("middleware", () => {
 
   it("passes through for a signed-in user on a protected page", () => {
     const res = middleware(
-      requestWithCookie("https://app.test/dashboard", signedCookie("session-1")),
+      requestWithCookie("https://app.test/inbox", signedCookie("session-1")),
     );
     expect(res.headers.get("location")).toBeNull();
   });

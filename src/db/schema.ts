@@ -103,6 +103,11 @@ export const accounts = pgTable(
     subscriptionRenewsAt: timestamp("subscription_renews_at", { withTimezone: true }),
     subscriptionCanceledAt: timestamp("subscription_canceled_at", { withTimezone: true }),
     kiwifyCustomerEmail: text("kiwify_customer_email"),
+    // Kiwify's own subscription id, captured from the webhook payload —
+    // needed to call their Subscriptions API to cancel (see
+    // src/lib/kiwify/api-client.ts). Null until the first webhook event
+    // for this account carries one.
+    kiwifySubscriptionId: text("kiwify_subscription_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -269,8 +274,6 @@ export const reactionActorTypeEnum = pgEnum("reaction_actor_type", ["customer", 
 
 export const quickReplyKindEnum = pgEnum("quick_reply_kind", ["text", "interactive"]);
 
-export const dealStatusEnum = pgEnum("deal_status", ["active", "won", "lost"]);
-
 export const broadcastStatusEnum = pgEnum("broadcast_status", [
   "draft",
   "scheduled",
@@ -288,49 +291,16 @@ export const broadcastRecipientStatusEnum = pgEnum("broadcast_recipient_status",
   "failed",
 ]);
 
-export const notificationTypeEnum = pgEnum("notification_type", ["conversation_assigned"]);
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "conversation_assigned",
+  // A visitor finished the public checkout + onboarding form
+  // (src/app/assinar/obrigado) — fires on the platform account's
+  // admins so Divary's team can send the new client their access
+  // link. See signup_leads below.
+  "signup_lead",
+]);
 
 export const presenceStatusEnum = pgEnum("presence_status", ["online", "away"]);
-
-export const automationTriggerTypeEnum = pgEnum("automation_trigger_type", [
-  "new_message_received",
-  "first_inbound_message",
-  "keyword_match",
-  "new_contact_created",
-  "conversation_assigned",
-  "tag_added",
-  "time_based",
-  "interactive_reply",
-]);
-
-export const automationStepTypeEnum = pgEnum("automation_step_type", [
-  "send_message",
-  "send_buttons",
-  "send_list",
-  "send_template",
-  "add_tag",
-  "remove_tag",
-  "assign_conversation",
-  "update_contact_field",
-  "create_deal",
-  "wait",
-  "condition",
-  "send_webhook",
-  "close_conversation",
-]);
-
-export const automationLogStatusEnum = pgEnum("automation_log_status", [
-  "success",
-  "partial",
-  "failed",
-]);
-
-export const automationPendingStatusEnum = pgEnum("automation_pending_status", [
-  "pending",
-  "running",
-  "done",
-  "failed",
-]);
 
 const DEFAULT_WELCOME_MESSAGE =
   "Olá! 👋 Obrigado por entrar em contato. Em instantes um de nossos atendentes vai te responder.";
@@ -731,73 +701,6 @@ export const quickReplies = pgTable(
 );
 
 // ------------------------------------------------------------
-// pipelines / deals
-// ------------------------------------------------------------
-export const pipelines = pgTable(
-  "pipelines",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    accountId: uuid("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    name: text("name").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("idx_pipelines_account").on(table.accountId)],
-);
-
-export const pipelineStages = pgTable(
-  "pipeline_stages",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    pipelineId: uuid("pipeline_id")
-      .notNull()
-      .references(() => pipelines.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    position: integer("position").notNull().default(0),
-    color: text("color").notNull().default("#3b82f6"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("idx_pipeline_stages_pipeline").on(table.pipelineId)],
-);
-
-export const deals = pgTable(
-  "deals",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    accountId: uuid("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    pipelineId: uuid("pipeline_id")
-      .notNull()
-      .references(() => pipelines.id, { onDelete: "cascade" }),
-    stageId: uuid("stage_id")
-      .notNull()
-      .references(() => pipelineStages.id),
-    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
-    conversationId: uuid("conversation_id").references(() => conversations.id, {
-      onDelete: "set null",
-    }),
-    title: text("title").notNull(),
-    value: numeric("value", { precision: 12, scale: 2 }).notNull().default("0"),
-    currency: text("currency").default("BRL"),
-    notes: text("notes"),
-    expectedCloseDate: date("expected_close_date"),
-    status: dealStatusEnum("status").notNull().default("active"),
-    assignedTo: uuid("assigned_to").references(() => users.id, { onDelete: "set null" }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("idx_deals_account").on(table.accountId),
-    index("idx_deals_pipeline").on(table.pipelineId),
-    index("idx_deals_stage").on(table.stageId),
-  ],
-);
-
-// ------------------------------------------------------------
 // broadcasts — no `template_name`/`template_language` (Meta-only
 // concepts, dropped); broadcasts now send plain text/media through
 // UAZAPI directly, no template approval step.
@@ -860,116 +763,6 @@ export const broadcastRecipients = pgTable(
 // conversation-assign route), not a DB trigger, since the old
 // trigger's logic depended on auth.uid().
 // ------------------------------------------------------------
-export const automations = pgTable(
-  "automations",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    accountId: uuid("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
-    // Audit/original author. Tenancy is always accountId.
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    name: text("name").notNull(),
-    description: text("description"),
-    triggerType: automationTriggerTypeEnum("trigger_type").notNull(),
-    triggerConfig: jsonb("trigger_config")
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    isActive: boolean("is_active").notNull().default(false),
-    executionCount: integer("execution_count").notNull().default(0),
-    lastExecutedAt: timestamp("last_executed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("idx_automations_account").on(table.accountId),
-    index("idx_automations_account_trigger_active").on(
-      table.accountId,
-      table.triggerType,
-      table.isActive,
-    ),
-  ],
-);
-
-export const automationSteps = pgTable(
-  "automation_steps",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    automationId: uuid("automation_id")
-      .notNull()
-      .references(() => automations.id, { onDelete: "cascade" }),
-    parentStepId: uuid("parent_step_id").references((): AnyPgColumn => automationSteps.id, {
-      onDelete: "cascade",
-    }),
-    branch: text("branch"),
-    stepType: automationStepTypeEnum("step_type").notNull(),
-    stepConfig: jsonb("step_config")
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    position: integer("position").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("idx_automation_steps_automation").on(table.automationId),
-    index("idx_automation_steps_parent").on(table.parentStepId),
-  ],
-);
-
-export const automationLogs = pgTable(
-  "automation_logs",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    automationId: uuid("automation_id")
-      .notNull()
-      .references(() => automations.id, { onDelete: "cascade" }),
-    accountId: uuid("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
-    triggerEvent: text("trigger_event").notNull(),
-    stepsExecuted: jsonb("steps_executed")
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    status: automationLogStatusEnum("status").notNull().default("success"),
-    errorMessage: text("error_message"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("idx_automation_logs_automation_created").on(table.automationId, table.createdAt),
-    index("idx_automation_logs_account_created").on(table.accountId, table.createdAt),
-  ],
-);
-
-export const automationPendingExecutions = pgTable(
-  "automation_pending_executions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    automationId: uuid("automation_id")
-      .notNull()
-      .references(() => automations.id, { onDelete: "cascade" }),
-    accountId: uuid("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
-    logId: uuid("log_id").references(() => automationLogs.id, { onDelete: "set null" }),
-    parentStepId: uuid("parent_step_id").references(() => automationSteps.id, { onDelete: "set null" }),
-    branch: text("branch"),
-    nextStepPosition: integer("next_step_position").notNull().default(0),
-    context: jsonb("context")
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    runAt: timestamp("run_at", { withTimezone: true }).notNull(),
-    status: automationPendingStatusEnum("status").notNull().default("pending"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("idx_automation_pending_due").on(table.status, table.runAt),
-    index("idx_automation_pending_account").on(table.accountId),
-  ],
-);
-
 export const notifications = pgTable(
   "notifications",
   {
@@ -997,6 +790,32 @@ export const notifications = pgTable(
       .on(table.userId)
       .where(sql`${table.readAt} is null`),
   ],
+);
+
+export const signupLeadStatusEnum = pgEnum("signup_lead_status", ["new", "contacted"]);
+
+// ------------------------------------------------------------
+// signup_leads — durable record of what a visitor filled in on the
+// public post-checkout onboarding form (src/app/assinar/obrigado),
+// so the Divary team has something to work from beyond the
+// notification's free-text body (which they might delete/lose). No
+// accountId — this is pre-account, that's the whole point of it: the
+// platform team reads it, then manually creates the client via
+// /admin (same "Criar cliente" flow as always) and sends the access
+// link, exactly like the process before this form existed.
+// ------------------------------------------------------------
+export const signupLeads = pgTable(
+  "signup_leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyName: text("company_name").notNull(),
+    domain: text("domain"),
+    email: text("email").notNull(),
+    phone: text("phone").notNull(),
+    status: signupLeadStatusEnum("status").notNull().default("new"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_signup_leads_created").on(table.createdAt)],
 );
 
 // ------------------------------------------------------------

@@ -100,6 +100,11 @@ export async function POST(request: Request) {
   ]
     .filter(Boolean)
     .join(" ");
+  // Needed to call Kiwify's Subscriptions API for in-app cancellation
+  // later (see src/lib/kiwify/api-client.ts) — not verified against a
+  // live payload yet, same caveat as the rest of this file's field
+  // guesses.
+  const subscriptionId = pick(body, "Subscription.id", "subscription.id", "subscription_id");
 
   if (!email) {
     console.error("[kiwify webhook] no customer email found in payload:", rawBody.slice(0, 2000));
@@ -123,6 +128,7 @@ export async function POST(request: Request) {
     kiwifyCustomerEmail: email,
     updatedAt: new Date(),
   };
+  if (subscriptionId) update.kiwifySubscriptionId = subscriptionId;
 
   if (ACTIVE_STATUSES.has(rawStatus)) {
     update.subscriptionStatus = "active";

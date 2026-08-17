@@ -167,6 +167,11 @@ export const RATE_LIMITS = {
    *  capping a stampede; excess inbounds simply don't get an auto-reply
    *  (they still land in the inbox for a human). */
   aiAutoReplyAccount: { limit: 30, windowMs: 60_000 },
+  /** Public post-checkout onboarding form (no auth, keyed by the
+   *  submitted email). 5/min is plenty for someone re-submitting after
+   *  a typo, while bounding a script from flooding the platform
+   *  admins' notifications. */
+  publicSignupLead: { limit: 5, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

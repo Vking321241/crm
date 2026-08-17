@@ -1,0 +1,1 @@
+ALTER TABLE "accounts" ADD COLUMN "kiwify_subscription_id" text;

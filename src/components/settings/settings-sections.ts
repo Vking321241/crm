@@ -1,5 +1,4 @@
 import {
-  Coins,
   CreditCard,
   LayoutGrid,
   MessageSquareText,
@@ -33,7 +32,6 @@ export const SETTINGS_SECTIONS = [
   'auto-reply',
   'fields',
   'departments',
-  'deals',
   'members',
   'permissions',
   'subscription',
@@ -82,7 +80,6 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   'auto-reply': { id: 'auto-reply', label: 'Mensagens automáticas', icon: MessageSquareText, group: 'workspace' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace' },
   departments: { id: 'departments', label: 'Setores', icon: Users2, group: 'workspace' },
-  deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   permissions: { id: 'permissions', label: 'Permissões', icon: ShieldCheck, group: 'workspace' },
   subscription: { id: 'subscription', label: 'Assinatura', icon: CreditCard, group: 'workspace' },

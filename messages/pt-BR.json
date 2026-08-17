@@ -1469,9 +1469,9 @@
       "auto-reply": "Mensagens automáticas",
       "fields": "Campos e etiquetas",
       "departments": "Setores",
-      "deals": "Negócios e moeda",
       "members": "Membros da equipe",
-      "permissions": "Permissões"
+      "permissions": "Permissões",
+      "subscription": "Assinatura"
     },
     "groups": {
       "account": "Conta",

@@ -19,7 +19,6 @@ import {
 import { ModeToggle } from "@/components/layout/mode-toggle";
 
 const pageTitles: Record<string, string> = {
-  "/dashboard": "dashboard",
   "/inbox": "inbox",
   "/notifications": "notifications",
   "/contacts": "contacts",
@@ -33,7 +32,7 @@ function getPageTitleKey(pathname: string): string {
   const match = Object.entries(pageTitles).find(([path]) =>
     pathname.startsWith(path),
   );
-  return match ? match[1] : "dashboard";
+  return match ? match[1] : "inbox";
 }
 
 interface HeaderProps {

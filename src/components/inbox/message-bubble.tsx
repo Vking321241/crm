@@ -81,25 +81,32 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-      </div>
-    );
-  }
-
+  // The <img> tag must always be mounted — its onLoad/onError handlers
+  // are what flip `loading` off. It used to be gated behind `if
+  // (loading) return <spinner>`, which meant the tag never mounted and
+  // the spinner never cleared. The spinner now overlays the (invisible
+  // until loaded) image instead of replacing it.
   return (
-    <img
-      src={src ?? ""}
-      alt={alt}
-      className="max-h-64 max-w-60 rounded-lg object-cover"
-      onLoad={() => setLoading(false)}
-      onError={() => {
-        setError(true);
-        setLoading(false);
-      }}
-    />
+    <div className="relative h-40 w-60">
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-muted">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      )}
+      <img
+        src={src ?? ""}
+        alt={alt}
+        className={cn(
+          "max-h-64 max-w-60 rounded-lg object-cover",
+          loading && "invisible",
+        )}
+        onLoad={() => setLoading(false)}
+        onError={() => {
+          setError(true);
+          setLoading(false);
+        }}
+      />
+    </div>
   );
 }
 

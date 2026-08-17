@@ -112,7 +112,7 @@ export default function AcceptPage() {
         return;
       }
       toast.success("Conta pronta!");
-      window.location.href = "/dashboard";
+      window.location.href = "/inbox";
     } catch (err) {
       console.error("[accept] submit error:", err);
       toast.error("Não foi possível concluir. Tente novamente.");

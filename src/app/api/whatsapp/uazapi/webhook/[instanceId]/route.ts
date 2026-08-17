@@ -14,7 +14,7 @@ import {
 import { findExistingContactDb, isUniqueViolation } from "@/lib/contacts/dedupe";
 import { parseUazapiWebhook, sendText, getProfilePicture } from "@/lib/whatsapp/uazapi-client";
 import { decrypt } from "@/lib/whatsapp/encryption";
-import { resolveAutoReply, isThrottled, type BusinessHours } from "@/lib/automations/auto-reply-rules";
+import { resolveAutoReply, isThrottled, type BusinessHours } from "@/lib/auto-reply/auto-reply-rules";
 import { saveInboundMedia } from "@/lib/storage/server-files";
 
 // The UAZAPI webhook is registered per-instance
@@ -59,6 +59,24 @@ export async function POST(
 async function processInbound(instanceId: string, body: unknown) {
   const parsed = parseUazapiWebhook(body);
   if (!parsed) return;
+
+  // TEMP DIAGNOSTIC — the mediaUrl/mediaBase64 field names in
+  // parseUazapiWebhook are a best-effort guess, unverified against
+  // this account's live UAZAPI install. If a media message comes
+  // through with neither resolved, dump the raw payload so the real
+  // field names can be read from the container logs and the parser
+  // corrected for good. Safe to remove once media send/receive is
+  // confirmed working — this does not affect delivery, only logging.
+  if (
+    (parsed.type === "image" || parsed.type === "audio" || parsed.type === "video" || parsed.type === "document") &&
+    !parsed.mediaUrl &&
+    !parsed.mediaBase64
+  ) {
+    console.error(
+      "[uazapi webhook] DIAGNOSTIC media message with no resolvable url/base64 — raw payload:",
+      JSON.stringify(body).slice(0, 5000),
+    );
+  }
 
   const [row] = await db
     .select({

@@ -4,10 +4,8 @@ import {
   broadcasts,
   contacts,
   conversations,
-  deals,
   departments,
   messages,
-  pipelineStages,
   users,
 } from "@/db/schema";
 import {
@@ -28,8 +26,6 @@ import type {
   DepartmentSlice,
   HeatmapCell,
   MetricsBundle,
-  PipelineDonutData,
-  PipelineStageSlice,
   ResponseTimeBucket,
   ResponseTimeSummary,
 } from "./types";
@@ -53,7 +49,6 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
     [newConvYesterday],
     [newContactsToday],
     [newContactsYesterday],
-    openDealsRows,
     [messagesToday],
     [messagesYesterday],
   ] = await Promise.all([
@@ -97,10 +92,6 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
         ),
       ),
     db
-      .select({ value: deals.value })
-      .from(deals)
-      .where(and(eq(deals.accountId, accountId), eq(deals.status, "active"))),
-    db
       .select({ count: sql<number>`count(*)::int` })
       .from(messages)
       .innerJoin(conversations, eq(conversations.id, messages.conversationId))
@@ -125,8 +116,6 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
       ),
   ]);
 
-  const openDealsValue = openDealsRows.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
-
   return {
     activeConversations: {
       current: openConvCur.count ?? 0,
@@ -136,8 +125,6 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
       current: newContactsToday.count ?? 0,
       previous: newContactsYesterday.count ?? 0,
     },
-    openDealsValue,
-    openDealsCount: openDealsRows.length,
     messagesSentToday: {
       current: messagesToday.count ?? 0,
       previous: messagesYesterday.count ?? 0,
@@ -173,53 +160,6 @@ export async function loadConversationsSeries(
   }
 
   return keys.map((day) => ({ day, ...(buckets.get(day) ?? { incoming: 0, outgoing: 0 }) }));
-}
-
-// --- 3. Pipeline donut -------------------------------------------------
-
-export async function loadPipelineDonut(db: Db, accountId: string): Promise<PipelineDonutData> {
-  // pipeline_stages has no account_id of its own — join through
-  // pipelines to scope it.
-  const stages = await db
-    .select({
-      id: pipelineStages.id,
-      name: pipelineStages.name,
-      color: pipelineStages.color,
-    })
-    .from(pipelineStages)
-    .innerJoin(
-      sql`pipelines`,
-      sql`pipelines.id = ${pipelineStages.pipelineId} AND pipelines.account_id = ${accountId}`,
-    )
-    .orderBy(pipelineStages.position);
-
-  const dealsRows = await db
-    .select({ stageId: deals.stageId, value: deals.value })
-    .from(deals)
-    .where(and(eq(deals.accountId, accountId), eq(deals.status, "active")));
-
-  const byStage = new Map<string, { count: number; total: number }>();
-  for (const d of dealsRows) {
-    const row = byStage.get(d.stageId) ?? { count: 0, total: 0 };
-    row.count += 1;
-    row.total += Number(d.value ?? 0);
-    byStage.set(d.stageId, row);
-  }
-
-  const slices: PipelineStageSlice[] = stages
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      color: s.color || "#64748b",
-      dealCount: byStage.get(s.id)?.count ?? 0,
-      totalValue: byStage.get(s.id)?.total ?? 0,
-    }))
-    .filter((s) => s.totalValue > 0 || s.dealCount > 0);
-
-  return {
-    stages: slices,
-    totalValue: slices.reduce((sum, s) => sum + s.totalValue, 0),
-  };
 }
 
 // --- 4. Response time by day of week ----------------------------------
@@ -302,7 +242,7 @@ export async function loadResponseTime(db: Db, accountId: string): Promise<Respo
 // product.
 
 export async function loadActivity(db: Db, accountId: string, limit = 20): Promise<ActivityItem[]> {
-  const [msgs, contactRows, dealRows, broadcastRows] = await Promise.all([
+  const [msgs, contactRows, broadcastRows] = await Promise.all([
     db
       .select({
         id: messages.id,
@@ -323,18 +263,6 @@ export async function loadActivity(db: Db, accountId: string, limit = 20): Promi
       .from(contacts)
       .where(eq(contacts.accountId, accountId))
       .orderBy(desc(contacts.createdAt))
-      .limit(10),
-    db
-      .select({
-        id: deals.id,
-        title: deals.title,
-        updatedAt: deals.updatedAt,
-        stageName: pipelineStages.name,
-      })
-      .from(deals)
-      .leftJoin(pipelineStages, eq(pipelineStages.id, deals.stageId))
-      .where(eq(deals.accountId, accountId))
-      .orderBy(desc(deals.updatedAt))
       .limit(10),
     db
       .select({
@@ -370,16 +298,6 @@ export async function loadActivity(db: Db, accountId: string, limit = 20): Promi
       text: `New contact: ${c.name || c.phone}`,
       at: c.createdAt.toISOString(),
       href: "/contacts",
-    });
-  }
-
-  for (const d of dealRows) {
-    items.push({
-      id: `deal-${d.id}`,
-      kind: "deal",
-      text: d.stageName ? `Deal "${d.title}" in ${d.stageName}` : `Deal "${d.title}" updated`,
-      at: d.updatedAt.toISOString(),
-      href: "/pipelines",
     });
   }
 

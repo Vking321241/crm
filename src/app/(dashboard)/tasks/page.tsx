@@ -11,10 +11,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { format, isToday } from 'date-fns';
 import { toast } from 'sonner';
-import { CalendarClock, Check, Loader2 } from 'lucide-react';
+import { CalendarClock, Check, Loader2, Plus, Search } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+
+interface ConversationOption {
+  id: string;
+  contact: { name: string | null; phone: string };
+}
 
 interface AccountTask {
   id: string;
@@ -32,6 +46,15 @@ export default function TasksPage() {
   const { hasPermission, profileLoading } = useAuth();
   const [tasks, setTasks] = useState<AccountTask[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [conversationQuery, setConversationQuery] = useState('');
+  const [conversationOptions, setConversationOptions] = useState<ConversationOption[]>([]);
+  const [searchingConversations, setSearchingConversations] = useState(false);
+  const [selectedConversation, setSelectedConversation] = useState<ConversationOption | null>(null);
+  const [newNote, setNewNote] = useState('');
+  const [newDueAt, setNewDueAt] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async (showSpinner: boolean) => {
     if (showSpinner) setLoading(true);
@@ -51,6 +74,59 @@ export default function TasksPage() {
     const timer = setInterval(() => void load(false), POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  // Debounced conversation search — a task always hangs off a
+  // conversation (see conversation_tasks.conversation_id, NOT NULL),
+  // so creating one here means picking which conversation it belongs
+  // to first, same as the inbox sidebar's "Agendar" flow does per-chat.
+  useEffect(() => {
+    if (!newTaskOpen || selectedConversation) return;
+    const query = conversationQuery.trim();
+    if (query.length < 2) {
+      setConversationOptions([]);
+      return;
+    }
+    setSearchingConversations(true);
+    const timer = setTimeout(() => {
+      fetch(`/api/conversations?search=${encodeURIComponent(query)}`, { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((data) => setConversationOptions((data.conversations as ConversationOption[]) ?? []))
+        .catch(() => setConversationOptions([]))
+        .finally(() => setSearchingConversations(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [conversationQuery, newTaskOpen, selectedConversation]);
+
+  function resetNewTaskForm() {
+    setConversationQuery('');
+    setConversationOptions([]);
+    setSelectedConversation(null);
+    setNewNote('');
+    setNewDueAt('');
+  }
+
+  async function handleCreateTask() {
+    if (!selectedConversation || !newNote.trim() || !newDueAt) return;
+    setCreating(true);
+    try {
+      const res = await fetch(`/api/conversations/${selectedConversation.id}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: newNote.trim(), dueAt: new Date(newDueAt).toISOString() }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Falha ao criar tarefa');
+        return;
+      }
+      toast.success('Tarefa criada');
+      setNewTaskOpen(false);
+      resetNewTaskForm();
+      await load(false);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   async function toggleDone(task: AccountTask) {
     const nextStatus = task.status === 'done' ? 'pending' : 'done';
@@ -95,10 +171,126 @@ export default function TasksPage() {
 
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <CalendarClock className="size-5 text-primary" />
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Central de Tarefas</h1>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarClock className="size-5 text-primary" />
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Central de Tarefas</h1>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => {
+            resetNewTaskForm();
+            setNewTaskOpen(true);
+          }}
+        >
+          <Plus className="size-4" />
+          Nova tarefa
+        </Button>
       </div>
+
+      <Dialog
+        open={newTaskOpen}
+        onOpenChange={(open) => {
+          setNewTaskOpen(open);
+          if (!open) resetNewTaskForm();
+        }}
+      >
+        <DialogContent className="bg-popover border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-popover-foreground">Nova tarefa</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Toda tarefa fica ligada a uma conversa — escolha o contato/conversa primeiro.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            {selectedConversation ? (
+              <div className="flex items-center justify-between rounded-md border border-border bg-muted px-3 py-2 text-sm">
+                <span className="text-foreground">
+                  {selectedConversation.contact.name || selectedConversation.contact.phone}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedConversation(null)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Trocar
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    autoFocus
+                    value={conversationQuery}
+                    onChange={(e) => setConversationQuery(e.target.value)}
+                    placeholder="Buscar por nome ou telefone..."
+                    className="w-full rounded-md border border-border bg-muted py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
+                  />
+                </div>
+                {searchingConversations ? (
+                  <div className="flex justify-center py-3">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : conversationOptions.length > 0 ? (
+                  <ul className="max-h-48 space-y-1 overflow-y-auto">
+                    {conversationOptions.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedConversation(c)}
+                          className="w-full rounded-md px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+                        >
+                          {c.contact.name || c.contact.phone}
+                          {c.contact.name && (
+                            <span className="ml-2 text-xs text-muted-foreground">{c.contact.phone}</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : conversationQuery.trim().length >= 2 ? (
+                  <p className="px-1 text-xs text-muted-foreground">Nenhuma conversa encontrada</p>
+                ) : null}
+              </div>
+            )}
+
+            <textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="O que precisa ser feito?"
+              rows={3}
+              disabled={!selectedConversation}
+              className="w-full resize-none rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50 disabled:opacity-50"
+            />
+            <input
+              type="datetime-local"
+              value={newDueAt}
+              onChange={(e) => setNewDueAt(e.target.value)}
+              disabled={!selectedConversation}
+              className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 disabled:opacity-50"
+            />
+          </div>
+
+          <DialogFooter className="bg-popover border-border">
+            <Button
+              variant="outline"
+              onClick={() => setNewTaskOpen(false)}
+              className="border-border text-muted-foreground hover:bg-muted"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateTask}
+              disabled={!selectedConversation || !newNote.trim() || !newDueAt || creating}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              {creating ? <Loader2 className="size-4 animate-spin" /> : 'Criar tarefa'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {loading ? (
         <div className="mt-8 flex justify-center">

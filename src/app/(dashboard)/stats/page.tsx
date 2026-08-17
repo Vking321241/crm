@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Users, MessageSquare, Clock, Send, UserCog } from "lucide-react"
 
 import type {
+  ActivityItem,
   AgentStat,
   ContactsGrowthPoint,
   ConversationsSeriesPoint,
@@ -17,6 +18,7 @@ import { SkeletonCard } from "@/components/dashboard/skeleton"
 import { Skeleton } from "@/components/dashboard/skeleton"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { ResponseTimeChart } from "@/components/dashboard/response-time-chart"
+import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { BarChart } from "@/components/tremor/bar-chart"
 import { AdvancedAnalyticsSection } from "@/components/dashboard/advanced-analytics"
 import { TransferHistorySection } from "@/components/dashboard/transfer-history-section"
@@ -29,6 +31,7 @@ interface StatsPayload {
   statusBreakdown: ConversationStatusBreakdown
   responseTime: ResponseTimeSummary
   agents: AgentStat[]
+  activity: ActivityItem[]
 }
 
 function formatMinutes(mins: number | null): string {
@@ -247,6 +250,10 @@ export default function StatsPage() {
           )}
         </div>
       </section>
+
+      {/* Recent activity — ported over from the old Painel dashboard
+          page when Painel/Pipeline/Negócios were removed. */}
+      <ActivityFeed items={data?.activity ?? null} loading={loading} />
 
       <TransferHistorySection />
     </div>

@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import type { Db } from "@/db/client";
 import { autoReplySettings, DEFAULT_BUSINESS_HOURS } from "@/db/schema";
-import type { BusinessHours } from "@/lib/automations/auto-reply-rules";
+import type { BusinessHours } from "@/lib/auto-reply/auto-reply-rules";
 
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;

@@ -1469,9 +1469,9 @@
       "auto-reply": "Automatic messages",
       "fields": "Fields & tags",
       "departments": "Departments",
-      "deals": "Deals & currency",
       "members": "Team members",
-      "permissions": "Permissions"
+      "permissions": "Permissions",
+      "subscription": "Subscription"
     },
     "groups": {
       "account": "Account",

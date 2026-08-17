@@ -7,7 +7,6 @@ import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { THEMES } from '@/lib/themes';
-import { CURRENCIES } from '@/lib/currency';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -18,7 +17,6 @@ import { ROLE_META } from './role-meta';
 
 interface OverviewCounts {
   members: number | null;
-  pendingInvites: number | null;
   tags: number | null;
   customFields: number | null;
 }
@@ -33,8 +31,7 @@ export function SettingsOverview({
 }: {
   onSelect: (section: SettingsSection) => void;
 }) {
-  const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers } =
-    useAuth();
+  const { user, profile, accountId, accountRole } = useAuth();
   const { mode, theme } = useTheme();
   const t = useTranslations('Settings.overview');
   const tRoles = useTranslations('roles');
@@ -56,11 +53,8 @@ export function SettingsOverview({
     // Cheap counts — resolve fast, render immediately.
     (async () => {
       setCountsLoading(true);
-      const [membersRes, invitesRes, tagsRes, fieldsRes] = await Promise.allSettled([
+      const [membersRes, tagsRes, fieldsRes] = await Promise.allSettled([
         fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
-        canManageMembers
-          ? fetch('/api/account/invitations', { cache: 'no-store' }).then((r) => r.json())
-          : Promise.resolve(null),
         fetch('/api/tags', { cache: 'no-store' }).then((r) => r.json()),
         fetch('/api/custom-fields', { cache: 'no-store' }).then((r) => r.json()),
       ]);
@@ -71,16 +65,9 @@ export function SettingsOverview({
         membersRes.status === 'fulfilled' && Array.isArray(membersRes.value?.members)
           ? membersRes.value.members.length
           : null;
-      const pendingInvites =
-        invitesRes.status === 'fulfilled' &&
-        invitesRes.value &&
-        Array.isArray(invitesRes.value.invitations)
-          ? invitesRes.value.invitations.length
-          : null;
 
       setCounts({
         members,
-        pendingInvites,
         tags:
           tagsRes.status === 'fulfilled' && Array.isArray(tagsRes.value?.tags)
             ? tagsRes.value.tags.length
@@ -112,15 +99,13 @@ export function SettingsOverview({
     return () => {
       cancelled = true;
     };
-  }, [user?.id, accountId, canManageMembers]);
+  }, [user?.id, accountId]);
 
   const displayName = profile?.full_name || profile?.email || t('yourAccount');
   const initial = (profile?.full_name || profile?.email || 'U').charAt(0).toUpperCase();
   const roleMeta = accountRole ? ROLE_META[accountRole] : null;
   const RoleIcon = roleMeta?.icon;
 
-  const currencyLabel =
-    CURRENCIES.find((c) => c.code === defaultCurrency)?.label ?? defaultCurrency;
   const themeName = THEMES.find((t) => t.id === theme)?.name ?? theme;
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -152,16 +137,7 @@ export function SettingsOverview({
       subtitle:
         counts?.members == null
           ? t('viewTeamMembers')
-          : `${t('membersCount', { count: counts.members })}${
-              counts.pendingInvites
-                ? ` · ${t('pendingInvites', { count: counts.pendingInvites })}`
-                : ''
-            }`,
-    },
-    {
-      section: 'deals',
-      loading: false,
-      subtitle: `${defaultCurrency} — ${currencyLabel}`,
+          : t('membersCount', { count: counts.members }),
     },
     {
       section: 'fields',

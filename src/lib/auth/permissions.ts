@@ -22,9 +22,7 @@ export type PermissionModule =
   | "internal_chat"
   | "tasks"
   | "contacts"
-  | "pipelines"
   | "broadcasts"
-  | "automations"
   | "settings"
   | "tags_manage"
   | "departments_manage";
@@ -42,9 +40,7 @@ export const PERMISSION_MODULES: readonly PermissionModuleMeta[] = [
   { key: "spy_mode", label: "Modo Espião", description: "Supervisionar atendimentos em tempo real" },
   { key: "reports", label: "Relatórios", description: "Dashboard analytics e relatórios" },
   { key: "contacts", label: "Contatos", description: "Base de contatos" },
-  { key: "pipelines", label: "Negociações", description: "Funis e negociações (deals)" },
   { key: "broadcasts", label: "Disparos em massa", description: "Campanhas de mensagens" },
-  { key: "automations", label: "Automações", description: "Fluxos automáticos" },
   { key: "tags_manage", label: "Criar Tags", description: "Criar/editar etiquetas de produtos" },
   { key: "departments_manage", label: "Gerenciar Setores", description: "Criar/editar departamentos" },
   { key: "settings", label: "Configurações", description: "Configurações administrativas" },

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, Loader2, UserPlus } from "lucide-react";
+import { Bell, CheckCheck, Loader2, UserPlus, CreditCard } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,7 @@ const POLL_MS = 15_000;
 
 interface NotificationRow {
   id: string;
-  type: "conversation_assigned";
+  type: "conversation_assigned" | "signup_lead";
   title: string;
   body: string | null;
   conversationId: string | null;
@@ -25,6 +25,7 @@ interface NotificationRow {
 
 const TYPE_ICON: Record<NotificationRow["type"], typeof Bell> = {
   conversation_assigned: UserPlus,
+  signup_lead: CreditCard,
 };
 
 export default function NotificationsPage() {

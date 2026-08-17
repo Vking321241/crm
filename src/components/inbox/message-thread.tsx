@@ -936,6 +936,17 @@ export function MessageThread({
               <span className="hidden sm:inline">Encerrar Atendimento</span>
             </button>
           )}
+
+          {conversation.status === "closed" && (
+            <button
+              type="button"
+              onClick={() => handleStatusChange("open")}
+              className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-primary/10 px-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              <PlayCircle className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Iniciar Atendimento</span>
+            </button>
+          )}
         </div>
       </div>
 

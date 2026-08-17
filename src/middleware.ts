@@ -35,25 +35,22 @@ function hasValidSessionCookie(request: NextRequest): boolean {
 export function middleware(request: NextRequest) {
   const authed = hasValidSessionCookie(request)
 
-  // Auth pages — redirect to dashboard if already logged in.
+  // Auth pages — redirect to the inbox if already logged in.
   if (
     authed &&
     (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/forgot-password')
   ) {
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
+    url.pathname = '/inbox'
     url.search = ''
     return NextResponse.redirect(url)
   }
 
   // Protected pages — redirect to login if not authenticated.
   const protectedPaths = [
-    '/dashboard',
     '/inbox',
     '/contacts',
-    '/pipelines',
     '/broadcasts',
-    '/automations',
     '/settings',
     '/admin',
   ]

@@ -26,7 +26,7 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   // Forwarded from `/join/<token>` when the visitor already has an
   // account. After a successful sign-in we send them to the join
-  // page to accept rather than to /dashboard.
+  // page to accept rather than to /inbox.
   const inviteToken = searchParams.get("invite");
   const t = useTranslations("LoginPage");
 
@@ -57,7 +57,7 @@ function LoginPageInner() {
     if (inviteToken) {
       router.push(`/accept/${encodeURIComponent(inviteToken)}`);
     } else {
-      router.push("/dashboard");
+      router.push("/inbox");
     }
   };
 
@@ -77,31 +77,16 @@ function LoginPageInner() {
 
       <div className="relative flex w-full max-w-4xl overflow-hidden rounded-3xl border border-border bg-card shadow-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:duration-500">
         {/* Brand panel — hidden on small screens, where the form alone
-         * carries the identity via the logo mark above it instead. */}
-        <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-[linear-gradient(160deg,var(--primary),var(--chart-2))] p-10 text-primary-foreground md:flex motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-left-6 motion-safe:duration-700">
-          <div
-            aria-hidden
-            className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/10 blur-2xl"
+         * carries the identity via the logo mark above it instead. The
+         * marketing image already bakes in the logo, headline, and
+         * feature callouts, so it's the only thing this panel renders. */}
+        <div className="relative hidden w-1/2 overflow-hidden bg-background md:block motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-left-6 motion-safe:duration-700">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/login.png"
+            alt="DivaryTalk — CRM de atendimento simples, inteligente e completo"
+            className="h-full w-full object-cover object-left"
           />
-          <div
-            aria-hidden
-            className="absolute -bottom-20 -left-10 h-64 w-64 rounded-full bg-white/10 blur-2xl"
-          />
-          <div className="relative flex items-center gap-2 font-heading text-lg">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/icon-white.png" alt="" className="size-9 object-contain" />
-            <span>
-              <span className="font-extrabold">DIVARY</span>Talk
-            </span>
-          </div>
-          <div className="relative">
-            <h2 className="font-heading text-2xl font-semibold leading-tight">
-              {t("brandHeadline")}
-            </h2>
-            <p className="mt-3 max-w-xs text-sm text-primary-foreground/80">
-              {t("brandSubheadline")}
-            </p>
-          </div>
         </div>
 
         {/* Form panel */}

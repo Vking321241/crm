@@ -16,7 +16,6 @@ import { QuickRepliesManager } from '@/components/settings/quick-replies-manager
 import { AutoReplySettings } from '@/components/settings/auto-reply-settings';
 import { DepartmentManager } from '@/components/settings/department-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
-import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { PermissionsMatrix } from '@/components/settings/permissions-matrix';
 import { SubscriptionPanel } from '@/components/settings/subscription-panel';
@@ -29,7 +28,7 @@ import {
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency, canEditSettings, profileLoading } = useAuth();
+  const { canEditSettings, profileLoading } = useAuth();
   const { mode } = useTheme();
   const t = useTranslations('Settings');
 
@@ -61,9 +60,8 @@ export default function SettingsPage() {
   const hints: Partial<Record<SettingsSection, ReactNode>> = useMemo(
     () => ({
       appearance: mode.charAt(0).toUpperCase() + mode.slice(1),
-      deals: defaultCurrency,
     }),
-    [mode, defaultCurrency],
+    [mode],
   );
 
   const panel: Record<SettingsSection, ReactNode> = {
@@ -76,7 +74,6 @@ export default function SettingsPage() {
     'auto-reply': <AutoReplySettings />,
     fields: <FieldsAndTagsPanel />,
     departments: <DepartmentManager />,
-    deals: <DealsSettings />,
     members: <MembersTab />,
     permissions: <PermissionsMatrix />,
     subscription: <SubscriptionPanel />,

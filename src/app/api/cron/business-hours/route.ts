@@ -3,7 +3,7 @@ import { and, eq, isNull, isNotNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { accounts, autoReplySettings, conversations, DEFAULT_BUSINESS_HOURS } from "@/db/schema";
-import { isWithinBusinessHours, type BusinessHours } from "@/lib/automations/auto-reply-rules";
+import { isWithinBusinessHours, type BusinessHours } from "@/lib/auto-reply/auto-reply-rules";
 
 /**
  * Business-hours auto-pause sweep. Meant to be hit on a schedule

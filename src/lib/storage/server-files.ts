@@ -158,6 +158,14 @@ export async function saveInboundMedia(opts: {
           const fetchedType = res.headers.get("content-type") || contentType;
           return await writeAccountFile(accountId, bytes, fetchedType, sourceUrl);
         }
+        console.error("[saveInboundMedia] fetched 0 bytes from", sourceUrl);
+      } else {
+        console.error(
+          "[saveInboundMedia] fetch non-ok status",
+          res.status,
+          "for",
+          sourceUrl,
+        );
       }
     } catch (err) {
       console.error("[saveInboundMedia] fetch failed:", err);

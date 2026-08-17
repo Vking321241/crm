@@ -18,7 +18,7 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import { SettingsPanelHead } from './settings-panel-head';
-import type { BusinessHours } from '@/lib/automations/auto-reply-rules';
+import type { BusinessHours } from '@/lib/auto-reply/auto-reply-rules';
 
 const DAYS: { key: keyof BusinessHours; label: string }[] = [
   { key: 'mon', label: 'Segunda' },
