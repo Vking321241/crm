@@ -595,23 +595,18 @@ export function parseUazapiWebhook(body: unknown): NormalizedInboundMessage | nu
   >;
   const rawType = String(m.messageType ?? m.mediaType ?? m.type ?? "text").toLowerCase();
 
-  // A customer reacting (or un-reacting) to a message on their phone
-  // — best-effort shape guess (Baileys-style `reactionMessage`,
-  // unverified against a live UAZAPI payload), same caveat as every
-  // other field-name guess in this parser. Checked before the normal
-  // type branches below so a reaction never gets misfiled as a plain
-  // text message containing just the emoji.
-  const reactionObj = (m.reactionMessage ??
-    content.reactionMessage ??
-    (m.message && typeof m.message === "object"
-      ? (m.message as Record<string, unknown>).reactionMessage
-      : null)) as Record<string, unknown> | null;
-  if (reactionObj || /reaction/.test(rawType)) {
-    const reactionKey = (reactionObj?.key ?? {}) as Record<string, unknown>;
-    const reactionTargetId = (reactionKey.id ??
-      reactionObj?.messageId ??
-      m.reactionTargetId ??
-      null) as string | null;
+  // A customer reacting (or un-reacting) to a message on their phone.
+  // Confirmed against a real UAZAPI payload (captured via
+  // src/app/api/debug/webhook-log): messageType is "ReactionMessage"
+  // and the target message id is a plain string at `m.reaction` (also
+  // mirrored, uppercase "ID", at `m.content.key.ID` — checked as a
+  // fallback). The emoji is `m.text`, same field a normal text message
+  // uses; an empty string means the reaction was removed. Checked
+  // before the normal type branches below so a reaction never gets
+  // misfiled as a plain text message containing just the emoji.
+  if (/reaction/.test(rawType)) {
+    const contentKey = (content.key ?? {}) as Record<string, unknown>;
+    const reactionTargetId = (m.reaction ?? contentKey.ID ?? contentKey.id ?? null) as string | null;
     if (reactionTargetId) {
       return {
         phone,
@@ -627,7 +622,7 @@ export function parseUazapiWebhook(body: unknown): NormalizedInboundMessage | nu
         mimeType: null,
         externalId: null,
         reactionTargetId: String(reactionTargetId),
-        reactionEmoji: String(reactionObj?.text ?? m.text ?? ""),
+        reactionEmoji: String(m.text ?? content.text ?? ""),
       };
     }
     console.error(
