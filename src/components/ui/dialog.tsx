@@ -41,15 +41,20 @@ function DialogOverlay({
 
 function DialogContent({
   className,
+  overlayClassName,
   children,
   showCloseButton = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /** Override the backdrop's default near-transparent tint — e.g. a
+   *  fullscreen media viewer wants an opaque `bg-black/95`, not the
+   *  10%-opacity default meant for ordinary form dialogs. */
+  overlayClassName?: string
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(

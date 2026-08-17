@@ -34,6 +34,7 @@ export function MediaLightbox({ kind, url, filename, children }: MediaLightboxPr
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           showCloseButton={false}
+          overlayClassName="bg-black/90 backdrop-blur-sm"
           className="flex h-[90vh] max-h-[90vh] w-[95vw] max-w-5xl flex-col gap-0 bg-black/95 p-0 border-none sm:max-w-5xl"
         >
           <DialogTitle className="sr-only">{filename || 'Visualização de mídia'}</DialogTitle>
