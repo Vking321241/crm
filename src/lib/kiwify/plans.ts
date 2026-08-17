@@ -24,23 +24,23 @@ export const KIWIFY_PLANS: readonly KiwifyPlan[] = [
   {
     key: "5",
     seats: 5,
-    checkoutUrl: "https://pay.kiwify.com.br/E59QyQg",
-    priceLabel: "R$ 219,90/mês",
-    firstMonthLabel: "R$ 189,90 no primeiro mês",
+    checkoutUrl: "https://pay.kiwify.com.br/H94BFI6",
+    priceLabel: "R$ 189,90/mês",
+    firstMonthLabel: "R$ 159,90 no primeiro mês",
   },
   {
     key: "7",
     seats: 7,
-    checkoutUrl: "https://pay.kiwify.com.br/fxIb1CV",
-    priceLabel: "R$ 279,90/mês",
-    firstMonthLabel: "R$ 249,90 no primeiro mês",
+    checkoutUrl: "https://pay.kiwify.com.br/cM27DiM",
+    priceLabel: "R$ 249,90/mês",
+    firstMonthLabel: "R$ 219,00 no primeiro mês",
   },
   {
     key: "10",
     seats: 10,
-    checkoutUrl: "https://pay.kiwify.com.br/Et0F5m9",
-    priceLabel: "R$ 359,90/mês",
-    firstMonthLabel: "R$ 329,90 no primeiro mês",
+    checkoutUrl: "https://pay.kiwify.com.br/j8p83mS",
+    priceLabel: "R$ 299,00/mês",
+    firstMonthLabel: "R$ 279,90 no primeiro mês",
   },
 ] as const;
 
