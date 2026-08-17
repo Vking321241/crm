@@ -3,19 +3,18 @@
 // ============================================================
 // CreateAgentDialog
 //
-// The admin's way to add a user: type their name, e-mail and a
-// password, and pick exactly which modules they can access —
-// no invite link, no self-registration, no predefined role to
-// choose from. Checking every module effectively makes them a
-// "gerente" without promoting their role; leaving one checked locks
-// them to that single screen.
+// The manager's way to add a user: type their name, e-mail, a
+// password, and pick one of the two creatable roles — no invite
+// link, no self-registration. "Membro" starts with the default
+// module baseline (fine-tuned later from Settings → Permissões);
+// "Gerente" gets full access to everything, including workspace
+// Settings, same as the caller minus owner-only actions.
 // ============================================================
 
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, UserPlus } from 'lucide-react';
 
-import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,18 +26,27 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { DEFAULT_AGENT_MODULES, PERMISSION_MODULES, type PermissionModule } from '@/lib/auth/permissions';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useAuth } from '@/hooks/use-auth';
+
+type CreatableRole = 'agent' | 'manager';
+
+const ROLE_LABEL: Record<CreatableRole, string> = {
+  agent: 'Membro',
+  manager: 'Gerente',
+};
 
 interface CreateAgentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after a successful create so the parent re-fetches the roster. */
   onCreated: () => void;
-}
-
-function defaultModuleSet(): Set<PermissionModule> {
-  return new Set(DEFAULT_AGENT_MODULES);
 }
 
 function slugify(name: string): string {
@@ -60,7 +68,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   // auto-filling it from the name — a manual edit always wins.
   const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState('');
-  const [modules, setModules] = useState<Set<PermissionModule>>(defaultModuleSet);
+  const [role, setRole] = useState<CreatableRole>('agent');
   const [submitting, setSubmitting] = useState(false);
 
   function reset() {
@@ -68,7 +76,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setEmail('');
     setEmailTouched(false);
     setPassword('');
-    setModules(defaultModuleSet());
+    setRole('agent');
     setSubmitting(false);
   }
 
@@ -78,15 +86,6 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       const slug = slugify(value);
       setEmail(slug ? `${slug}@${domain}` : '');
     }
-  }
-
-  function toggleModule(mod: PermissionModule, checked: boolean) {
-    setModules((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(mod);
-      else next.delete(mod);
-      return next;
-    });
   }
 
   async function handleCreate() {
@@ -111,7 +110,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           name: name.trim(),
           email: email.trim(),
           password,
-          modules: Array.from(modules),
+          role,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -142,8 +141,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         <DialogHeader>
           <DialogTitle className="text-popover-foreground">Novo usuário</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Informe nome, e-mail e senha de acesso, e escolha o que essa pessoa pode ver no
-            sistema.
+            Informe nome, e-mail e senha de acesso, e escolha o cargo dessa pessoa.
           </DialogDescription>
         </DialogHeader>
 
@@ -196,25 +194,20 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           </div>
 
           <div className="space-y-2">
-            <Label className="text-muted-foreground">O que essa pessoa pode acessar</Label>
-            <div className="grid grid-cols-1 gap-x-4 gap-y-2 rounded-md border border-border bg-muted/40 p-3 sm:grid-cols-2">
-              {PERMISSION_MODULES.map((mod) => (
-                <label key={mod.key} className="flex items-start gap-2 text-sm">
-                  <Checkbox
-                    checked={modules.has(mod.key)}
-                    onCheckedChange={(v) => toggleModule(mod.key, v === true)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    <span className="block text-foreground">{mod.label}</span>
-                    <span className="block text-xs text-muted-foreground">{mod.description}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
+            <Label className="text-muted-foreground">Cargo</Label>
+            <Select value={role} onValueChange={(v) => v && setRole(v as CreatableRole)}>
+              <SelectTrigger className="w-full bg-muted border-border text-foreground">
+                <SelectValue>{() => ROLE_LABEL[role]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="agent">Membro</SelectItem>
+                <SelectItem value="manager">Gerente</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
-              Marque tudo para dar acesso total (equivalente a um gerente) sem torná-lo
-              administrador. Dá para ajustar depois em Configurações → Permissões.
+              {role === 'manager'
+                ? 'Gerente vê e edita tudo, inclusive Configurações do espaço de trabalho — igual a você, exceto ações exclusivas do proprietário.'
+                : 'Membro começa com acesso básico (Central de Atendimento, Tarefas, Chat Interno, Contatos). Ajuste depois em Configurações → Permissões.'}
             </p>
           </div>
         </div>

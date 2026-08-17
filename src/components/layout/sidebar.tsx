@@ -45,9 +45,9 @@ const ROLE_CHIP: Record<
     className:
       "border-amber-500/40 bg-amber-500/10 text-amber-300",
   },
-  admin: {
+  manager: {
     icon: Shield,
-    labelKey: "roleAdmin",
+    labelKey: "roleManager",
     // Primary-tinted: significant but not as scarce as owner.
     className:
       "border-primary/40 bg-primary/10 text-primary",

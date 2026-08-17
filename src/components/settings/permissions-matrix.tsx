@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, ShieldCheck } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -41,6 +42,7 @@ interface MatrixMember {
 }
 
 export function PermissionsMatrix() {
+  const tRoles = useTranslations('Settings.roles');
   const [members, setMembers] = useState<MatrixMember[]>([]);
   const [modules, setModules] = useState<ModuleMeta[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,17 +127,17 @@ export function PermissionsMatrix() {
 
   return (
     <RequireRole
-      min="admin"
+      min="manager"
       fallback={
         <p className="text-sm text-muted-foreground">
-          Apenas administradores podem gerenciar permissões.
+          Apenas gerentes podem gerenciar permissões.
         </p>
       }
     >
       <section className="animate-in fade-in-50 space-y-6 duration-200">
         <SettingsPanelHead
           title="Permissões por usuário"
-          description="Escolha exatamente o que cada atendente pode ver e acessar no sistema. Administradores e o proprietário sempre têm acesso total."
+          description="Escolha exatamente o que cada atendente pode ver e acessar no sistema. Gerentes e o proprietário sempre têm acesso total."
         />
 
         {members.length === 0 ? (
@@ -182,7 +184,7 @@ export function PermissionsMatrix() {
                               className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium ${roleMeta.className}`}
                             >
                               <RoleIcon className="size-3" />
-                              {member.role}
+                              {tRoles(member.role)}
                             </span>
                           </div>
                           {member.email && (
@@ -213,9 +215,11 @@ export function PermissionsMatrix() {
         )}
 
         <p className="text-xs text-muted-foreground">
-          Dica: marque todos os módulos de um atendente para torná-lo um{' '}
-          <Badge className="bg-muted text-muted-foreground border-border mx-1 text-[10px]">gerente</Badge>
-          sem promovê-lo a administrador.
+          Precisa que alguém veja Configurações do espaço de trabalho (Setores, Membros,
+          WhatsApp, …)? Isso é o cargo{' '}
+          <Badge className="bg-muted text-muted-foreground border-border mx-1 text-[10px]">Gerente</Badge>
+          — troque em Membros da equipe, não aqui. Esta tabela só ajusta o que um Membro comum
+          pode ver.
         </p>
       </section>
     </RequireRole>

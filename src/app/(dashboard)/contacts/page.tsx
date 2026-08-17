@@ -257,7 +257,7 @@ export default function ContactsPage() {
     return (
       <div className="flex h-64 items-center justify-center">
         <p className="text-sm text-muted-foreground">
-          Você não tem acesso aos contatos. Peça a um administrador para liberar em
+          Você não tem acesso aos contatos. Peça a um gerente para liberar em
           Configurações → Permissões.
         </p>
       </div>

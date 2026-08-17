@@ -61,13 +61,13 @@ describe("getCurrentAccount", () => {
 
 describe("requireRole", () => {
   it("resolves when the caller meets the minimum role", async () => {
-    getSessionUser.mockResolvedValue(makeSessionUser({ accountRole: "admin" }));
-    await expect(requireRole("agent")).resolves.toMatchObject({ role: "admin" });
+    getSessionUser.mockResolvedValue(makeSessionUser({ accountRole: "manager" }));
+    await expect(requireRole("agent")).resolves.toMatchObject({ role: "manager" });
   });
 
   it("throws ForbiddenError when the caller is below the minimum role", async () => {
     getSessionUser.mockResolvedValue(makeSessionUser({ accountRole: "viewer" }));
-    const err = await requireRole("admin").catch((e) => e);
+    const err = await requireRole("manager").catch((e) => e);
     expect(err).toBeInstanceOf(ForbiddenError);
   });
 });

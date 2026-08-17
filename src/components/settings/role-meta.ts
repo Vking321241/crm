@@ -28,10 +28,10 @@ export const ROLE_META: Record<
     variant: 'owner',
     className: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
   },
-  admin: {
+  manager: {
     icon: Shield,
-    label: 'admin',
-    variant: 'admin',
+    label: 'manager',
+    variant: 'manager',
     className: 'border-primary/40 bg-primary/10 text-primary',
   },
   agent: {

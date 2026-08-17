@@ -93,7 +93,7 @@ interface AuthContextValue {
   account: AccountSummary | null;
   defaultCurrency: string;
   isOwner: boolean;
-  isAdmin: boolean;
+  isManager: boolean;
   isAgent: boolean;
   isViewer: boolean;
   canManageMembers: boolean;
@@ -197,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       accountRole: role,
       accountId: profile?.account_id ?? null,
       isOwner: role === "owner",
-      isAdmin: role === "admin",
+      isManager: role === "manager",
       isAgent: role === "agent",
       isViewer: role === "viewer",
       canManageMembers: role ? canManageMembersFor(role) : false,
@@ -253,7 +253,7 @@ export function useAuth(): AuthContextValue {
       accountId: null,
       accountRole: null,
       isOwner: false,
-      isAdmin: false,
+      isManager: false,
       isAgent: false,
       isViewer: false,
       canManageMembers: false,

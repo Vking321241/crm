@@ -15,13 +15,13 @@
 // changes a one-file diff.
 // ============================================================
 
-export type AccountRole = "owner" | "admin" | "agent" | "viewer";
+export type AccountRole = "owner" | "manager" | "agent" | "viewer";
 
 /** Ordered list of every valid role, lowest privilege first. */
 export const ACCOUNT_ROLES: readonly AccountRole[] = [
   "viewer",
   "agent",
-  "admin",
+  "manager",
   "owner",
 ] as const;
 
@@ -33,7 +33,7 @@ export function roleRank(role: AccountRole): number {
   switch (role) {
     case "owner":
       return 4;
-    case "admin":
+    case "manager":
       return 3;
     case "agent":
       return 2;
@@ -66,22 +66,22 @@ export function isAccountRole(value: unknown): value is AccountRole {
 // = one new predicate here + one call site change per consumer.
 // ============================================================
 
-/** Owner / admin: invite, remove, change roles. */
+/** Owner / manager: invite, remove, change roles. */
 export function canManageMembers(role: AccountRole): boolean {
-  return hasMinRole(role, "admin");
+  return hasMinRole(role, "manager");
 }
 
 /**
- * Owner / admin: edit account-wide settings (WhatsApp config,
+ * Owner / manager: edit account-wide settings (WhatsApp config,
  * message templates, pipelines, tags, custom fields, account
  * name). Excludes per-user settings like avatar or own password.
  */
 export function canEditSettings(role: AccountRole): boolean {
-  return hasMinRole(role, "admin");
+  return hasMinRole(role, "manager");
 }
 
 /**
- * Owner / admin / agent: write operational data — send messages,
+ * Owner / manager / agent: write operational data — send messages,
  * create contacts, move deals, run broadcasts, edit automations.
  * Viewers are read-only.
  */

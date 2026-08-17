@@ -46,7 +46,7 @@
     "unreadConversations": "{count} unread {count, plural, =1 {conversation} other {conversations}}",
     "unreadNotifications": "{count} unread {count, plural, =1 {notification} other {notifications}}",
     "roleOwner": "Owner",
-    "roleAdmin": "Admin",
+    "roleManager": "Manager",
     "roleAgent": "Agent",
     "roleViewer": "Viewer",
     "closeMenu": "Close menu",
@@ -1249,7 +1249,7 @@
       "tagsDesc": "Colour-coded labels for grouping and filtering contacts.",
       "fieldsTitle": "Custom fields",
       "fieldsDesc": "Extra contact fields (e.g. ZIP code, lead source). They appear on every contact and in the “Update Contact Field” automation action.",
-      "adminRole": "Admin",
+      "adminRole": "Manager",
       "failedToLoadTags": "Failed to load tags",
       "nameRequired": "Tag name is required",
       "notAuthenticated": "Not authenticated",
@@ -1384,8 +1384,8 @@
       "toastUploadFailed": "Upload failed."
     },
     "roles": {
-      "admin": "Admin",
-      "adminHint": "Manage members + everything",
+      "manager": "Manager",
+      "managerHint": "Manage members + workspace settings",
       "agent": "Agent",
       "agentHint": "Use features; no settings",
       "viewer": "Viewer",

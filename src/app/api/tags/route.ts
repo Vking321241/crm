@@ -3,7 +3,7 @@
 //      any authenticated member, including viewers — read access
 //      is unrestricted per AGENTS.md: "qualquer membro para
 //      leitura").
-// POST /api/tags — create. Admin+ (settings-class).
+// POST /api/tags — create. Manager+ (settings-class).
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -33,7 +33,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const limit = checkRateLimit(`admin:tagCreate:${ctx.userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);

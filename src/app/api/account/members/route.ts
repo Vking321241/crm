@@ -2,12 +2,12 @@
 // GET /api/account/members
 //
 // Lists every member of the caller's account. Any member can call
-// it (the Members tab is shown to admins+, but agents/viewers see
+// it (the Members tab is shown to managers+, but agents/viewers see
 // a read-only roster too).
 //
 // Field visibility
 //   Sensitive fields (email) are returned only when the caller is
-//   admin+. Agents and viewers see name + avatar + role + joined
+//   manager+. Agents and viewers see name + avatar + role + joined
 //   date only. This mirrors the design decision from the planning
 //   phase: "agent/viewer sees names only".
 // ============================================================
@@ -20,7 +20,7 @@ import { canManageMembers } from "@/lib/auth/roles";
 import { accounts, departments, users, userPermissions } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/session";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
-import { isPermissionModule } from "@/lib/auth/permissions";
+import { DEFAULT_AGENT_MODULES, isPermissionModule } from "@/lib/auth/permissions";
 
 export async function GET() {
   try {
@@ -64,18 +64,17 @@ export async function GET() {
 // ============================================================
 // POST /api/account/members
 //
-// Admin+ creates a user directly — no invite link, no
-// self-registration. The admin types the person's real e-mail and a
-// password, and picks exactly which modules that person can access
-// (src/lib/auth/permissions.ts) right here, instead of choosing a
-// predefined role. The underlying `accountRole` is always "agent"
-// (the minimum baseline the auth layer needs), but the modules the
-// admin selects are what actually determine what the person sees —
-// checking every module makes them a de-facto "gerente" without a
-// role promotion; leaving just one checked locks them to that one
-// screen. Admins/owners still go through the separate invite-link
-// flow (src/app/api/auth/accept-token) since promoting to admin/
-// owner is a different, higher-trust action than granting modules.
+// Manager+ creates a user directly — no invite link, no
+// self-registration. Picks one of the two creatable roles:
+//   - "agent"   ("Membro"): sees only the modules explicitly granted
+//     (src/lib/auth/permissions.ts), defaulting to
+//     DEFAULT_AGENT_MODULES. Fine-tuned later from Settings → Permissões.
+//   - "manager" ("Gerente"): full access to every module AND the
+//     workspace-wide Settings surface (Setores, Membros, Permissões,
+//     WhatsApp, …) — same as this caller, minus owner-only actions
+//     (delete account, transfer ownership). No module grants needed.
+// "owner" is never assignable here — only via the dedicated
+// transfer-ownership flow.
 // ============================================================
 
 const MIN_PASSWORD_LEN = 8;
@@ -83,7 +82,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const limit = checkRateLimit(
       `admin:memberCreate:${ctx.userId}`,
@@ -111,8 +110,10 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown; email?: unknown; password?: unknown; modules?: unknown }
+      | { name?: unknown; email?: unknown; password?: unknown; modules?: unknown; role?: unknown }
       | null;
+
+    const role = body?.role === "manager" ? "manager" : "agent";
 
     const fullName = typeof body?.name === "string" ? body.name.trim() : "";
     if (!fullName) {
@@ -138,9 +139,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const modules = Array.isArray(body?.modules)
-      ? Array.from(new Set(body.modules.filter(isPermissionModule)))
-      : [];
+    const modules =
+      role === "manager"
+        ? []
+        : Array.isArray(body?.modules)
+          ? Array.from(new Set(body.modules.filter(isPermissionModule)))
+          : [...DEFAULT_AGENT_MODULES];
 
     const passwordHash = await hashPassword(password);
 
@@ -152,7 +156,7 @@ export async function POST(request: Request) {
           passwordHash,
           fullName,
           accountId: ctx.accountId,
-          accountRole: "agent",
+          accountRole: role,
         })
         .returning({
           userId: users.id,

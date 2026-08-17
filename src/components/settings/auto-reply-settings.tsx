@@ -156,7 +156,7 @@ export function AutoReplySettings() {
 
       {!canEdit && (
         <p className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          Apenas administradores podem editar estas configurações.
+          Apenas gerentes podem editar estas configurações.
         </p>
       )}
 

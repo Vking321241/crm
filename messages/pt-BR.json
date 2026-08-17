@@ -46,7 +46,7 @@
     "unreadConversations": "{count} {count, plural, =1 {conversa não lida} other {conversas não lidas}}",
     "unreadNotifications": "{count} {count, plural, =1 {notificação não lida} other {notificações não lidas}}",
     "roleOwner": "Proprietário",
-    "roleAdmin": "Administrador",
+    "roleManager": "Gerente",
     "roleAgent": "Agente",
     "roleViewer": "Visualizador",
     "closeMenu": "Fechar menu",
@@ -1249,7 +1249,7 @@
       "tagsDesc": "Rótulos coloridos para agrupar e filtrar contatos.",
       "fieldsTitle": "Campos personalizados",
       "fieldsDesc": "Campos extras de contato (ex.: CEP, origem do lead). Eles aparecem em todos os contatos e na ação de automação “Atualizar Campo do Contato”.",
-      "adminRole": "Administrador",
+      "adminRole": "Gerente",
       "failedToLoadTags": "Falha ao carregar etiquetas",
       "nameRequired": "O nome da etiqueta é obrigatório",
       "notAuthenticated": "Não autenticado",
@@ -1384,8 +1384,8 @@
       "toastUploadFailed": "Falha no envio."
     },
     "roles": {
-      "admin": "Administrador",
-      "adminHint": "Gerencia membros + tudo",
+      "manager": "Gerente",
+      "managerHint": "Gerencia membros + configurações do espaço de trabalho",
       "agent": "Agente",
       "agentHint": "Usa as funcionalidades; sem acesso a configurações",
       "viewer": "Visualizador",

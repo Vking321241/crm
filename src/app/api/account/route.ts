@@ -2,7 +2,7 @@
 // /api/account
 //
 //   GET   — current caller's account + role. Any member.
-//   PATCH — rename the account / default currency. Admin+.
+//   PATCH — rename the account / default currency. Manager+.
 //
 // Why both verbs share a route file
 //   They speak about the same singular resource (the caller's
@@ -43,7 +43,7 @@ const MAX_NAME_LEN = 80;
 
 export async function PATCH(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     // Per-user limit on admin-class mutations. Bounds accidental
     // abuse (script run in a loop) and a compromised admin session
@@ -141,7 +141,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // requireRole already guaranteed the caller is admin+ of this
+    // requireRole already guaranteed the caller is manager+ of this
     // account — the WHERE clause is the tenancy boundary (no RLS).
     const [data] = await ctx.db
       .update(accounts)

@@ -1,6 +1,6 @@
 // ============================================================
-// PATCH  /api/tags/[id] — rename / recolor. Admin+.
-// DELETE /api/tags/[id]. Admin+.
+// PATCH  /api/tags/[id] — rename / recolor. Manager+.
+// DELETE /api/tags/[id]. Manager+.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -17,7 +17,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
     const { id } = await params;
 
     const limit = checkRateLimit(`admin:tagUpdate:${ctx.userId}`, RATE_LIMITS.adminAction);
@@ -70,7 +70,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
     const { id } = await params;
 
     const limit = checkRateLimit(`admin:tagDelete:${ctx.userId}`, RATE_LIMITS.adminAction);

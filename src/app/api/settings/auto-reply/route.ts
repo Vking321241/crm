@@ -97,7 +97,7 @@ interface Body {
 
 export async function PUT(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
     const body = (await request.json().catch(() => null)) as Body | null;
     if (!body) {
       return NextResponse.json({ error: "Invalid body" }, { status: 400 });

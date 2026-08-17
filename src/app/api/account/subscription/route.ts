@@ -11,7 +11,7 @@ import { accounts } from "@/db/schema";
 
 export async function GET() {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const [row] = await ctx.db
       .select({

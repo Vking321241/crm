@@ -29,7 +29,7 @@ function escapeHtml(s: string): string {
 
 export async function GET() {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const rows = await ctx.db
       .select({

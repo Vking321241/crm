@@ -2,7 +2,7 @@
 // POST /api/account/transfer-ownership
 //
 // Owner only. Atomically:
-//   - demotes the current owner to 'admin'
+//   - demotes the current owner to 'manager'
 //   - promotes the target member to 'owner'
 //   - updates accounts.owner_user_id
 //
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     await ctx.db.transaction(async (tx) => {
       await tx
         .update(users)
-        .set({ accountRole: "admin", updatedAt: new Date() })
+        .set({ accountRole: "manager", updatedAt: new Date() })
         .where(eq(users.id, ctx.userId));
       await tx
         .update(users)

@@ -49,7 +49,7 @@ export function CustomFieldsManager({
 /**
  * Create / rename / delete account-wide custom contact field definitions.
  * Per-contact values are edited elsewhere (contact detail → Custom Fields);
- * this only manages the field catalogue. Admin+ gated by the caller — the
+ * this only manages the field catalogue. Manager+ gated by the caller — the
  * `/api/custom-fields` route also rejects non-admin writes as defense in
  * depth.
  */

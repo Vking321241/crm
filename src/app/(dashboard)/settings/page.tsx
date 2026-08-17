@@ -39,7 +39,7 @@ export default function SettingsPage() {
   // Non-admin members ("atendente") only manage their own account —
   // a direct ?tab=whatsapp (or any workspace section) falls back to
   // their profile instead, mirroring the rail's own filtering
-  // (visibleSections) so URL-guessing can't reach an admin-only panel.
+  // (visibleSections) so URL-guessing can't reach an manager-only panel.
   const requestedSection = resolveSection(searchParams.get('tab'));
   const allowed = visibleSections(canEditSettings);
   const section: SettingsSection = profileLoading

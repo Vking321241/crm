@@ -1,8 +1,8 @@
 // ============================================================
-// GET  /api/account/permissions — admin+ only. Returns every
+// GET  /api/account/permissions — manager+ only. Returns every
 //      non-owner member of the account with their module grants,
 //      plus the module catalog so the client doesn't hardcode it.
-// PATCH /api/account/permissions — admin+ only. Upserts a single
+// PATCH /api/account/permissions — manager+ only. Upserts a single
 //      (userId, module) grant. One cell per request keeps the
 //      matrix UI's checkbox clicks independent — no risk of one
 //      slow save clobbering another cell's optimistic state.
@@ -22,7 +22,7 @@ import {
 
 export async function GET() {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const [memberRows, grantRows] = await Promise.all([
       ctx.db
@@ -76,7 +76,7 @@ interface PatchBody {
 
 export async function PATCH(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const body = (await request.json().catch(() => null)) as PatchBody | null;
     const userId = typeof body?.userId === "string" ? body.userId : "";

@@ -141,6 +141,13 @@
       "when": 1786985242884,
       "tag": "0019_equal_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786988480862,
+      "tag": "0020_curious_obadiah_stane",
+      "breakpoints": true
     }
   ]
 }

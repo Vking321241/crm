@@ -16,7 +16,7 @@ import { SettingsChip } from './settings-chip';
 /**
  * Settings → Custom Fields card. Manages the account-wide custom
  * contact field catalogue (the same panel the Contacts page exposes
- * via a dialog). Writes are admin-gated by the caller and enforced by
+ * via a dialog). Writes are manager-gated by the caller and enforced by
  * `custom_fields` RLS.
  */
 export function CustomFieldsSettings() {
@@ -28,7 +28,7 @@ export function CustomFieldsSettings() {
         <CardTitle className="flex items-center gap-2 text-foreground">
           <SlidersHorizontal className="size-4 text-primary" />
           {t('fieldsTitle')}
-          <SettingsChip variant="admin" className="font-medium">
+          <SettingsChip variant="manager" className="font-medium">
             <Shield />
             {t('adminRole')}
           </SettingsChip>

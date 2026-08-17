@@ -286,7 +286,7 @@ export default function InternalChatPage() {
     return (
       <div className="flex h-64 items-center justify-center">
         <p className="text-sm text-muted-foreground">
-          Você não tem acesso ao Chat Interno. Peça a um administrador para liberar em
+          Você não tem acesso ao Chat Interno. Peça a um gerente para liberar em
           Configurações → Permissões.
         </p>
       </div>

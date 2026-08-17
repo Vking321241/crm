@@ -68,7 +68,7 @@ export const DEFAULT_AGENT_MODULES: readonly PermissionModule[] = [
  * module regardless of what's stored per-user).
  */
 export function roleHasFullAccess(role: string): boolean {
-  return role === "owner" || role === "admin";
+  return role === "owner" || role === "manager";
 }
 
 /**

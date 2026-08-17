@@ -1,8 +1,8 @@
 // ============================================================
 // /api/account/members/[userId]
 //
-//   PATCH  — change a member's role.   Admin+.
-//   DELETE — remove a member.          Admin+.
+//   PATCH  — change a member's role.   Manager+.
+//   DELETE — remove a member.          Manager+.
 //
 // Fatia 3: the business rules that used to live in the
 // SECURITY DEFINER RPCs `set_member_role`/`remove_account_member`
@@ -33,7 +33,7 @@ export async function PATCH(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const limit = checkRateLimit(`admin:memberRole:${ctx.userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);
@@ -54,7 +54,7 @@ export async function PATCH(
     if (hasRole) {
       if (!isAccountRole(role)) {
         return NextResponse.json(
-          { error: "'role' must be one of owner, admin, agent, viewer" },
+          { error: "'role' must be one of owner, manager, agent, viewer" },
           { status: 400 },
         );
       }
@@ -127,7 +127,7 @@ export async function DELETE(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const limit = checkRateLimit(`admin:memberRemove:${ctx.userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);

@@ -44,11 +44,11 @@ const FAIL_COPY: Record<Exclude<PeekResult, { ok: true }>["reason"], { title: st
   },
   used: {
     title: "Link já utilizado",
-    body: "Este link já foi usado. Se não foi você, peça um novo ao administrador.",
+    body: "Este link já foi usado. Se não foi você, peça um novo ao gerente.",
   },
   expired: {
     title: "Link expirado",
-    body: "Este link expirou. Peça ao administrador para gerar um novo.",
+    body: "Este link expirou. Peça ao gerente para gerar um novo.",
   },
 };
 

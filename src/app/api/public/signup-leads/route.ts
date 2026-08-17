@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       .where(
         and(
           eq(users.accountId, platformAccount.id),
-          inArray(users.accountRole, ["owner", "admin"]),
+          inArray(users.accountRole, ["owner", "manager"]),
         ),
       );
 

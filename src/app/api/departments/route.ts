@@ -1,6 +1,6 @@
 // ============================================================
 // GET  /api/departments — list, any account member.
-// POST /api/departments — create. Admin+.
+// POST /api/departments — create. Manager+.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -30,7 +30,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
 
     const limit = checkRateLimit(`admin:departmentCreate:${ctx.userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);

@@ -4,18 +4,18 @@
 // MembersTab — Settings → Members
 //
 // Two stacked sections:
-//   1. Roster   — every member of the account. Admin+ can change a
+//   1. Roster   — every member of the account. Manager+ can change a
 //                 teammate's role inline and remove them. Owner row
 //                 is non-editable everywhere (transfer is its own
 //                 separate flow, deferred to a later PR).
-//   2. Pending  — outstanding invite links. Admin+ can revoke. The
+//   2. Pending  — outstanding invite links. Manager+ can revoke. The
 //                 plaintext URL is gone after the create dialog
 //                 closes, so we surface a "revoke + new link" hint
 //                 rather than pretending we can resurface it.
 //
 // Role-gating
 //   The tab itself is reachable by any member, but mutation buttons
-//   are wrapped in `<RequireRole min="admin">` / `useCan` so an
+//   are wrapped in `<RequireRole min="manager">` / `useCan` so an
 //   agent or viewer sees the roster read-only. The server-side
 //   RPCs (set_member_role, remove_account_member) double-check
 //   the role anyway.
@@ -93,7 +93,7 @@ interface DepartmentOption {
 
 // These roles are translated via `useTranslations("Settings.roles")` where they are used.
 const EDITABLE_ROLES: { value: AccountRole }[] = [
-  { value: 'admin' },
+  { value: 'manager' },
   { value: 'agent' },
   { value: 'viewer' },
 ];
@@ -101,7 +101,7 @@ const EDITABLE_ROLES: { value: AccountRole }[] = [
 // Per-role chip metadata (icon / label / colour) lives in the shared
 // ROLE_META module so this roster and the Overview identity chip can't
 // drift. The colour scale runs amber (owner — scarce, immutable) →
-// primary (admin) → muted (agent / viewer).
+// primary (manager) → muted (agent / viewer).
 
 function fmtDate(iso: string): string {
   // Match the rest of the dashboard's locale-light formatting.
@@ -323,7 +323,7 @@ export function MembersTab() {
         title={t('title')}
         description={t('description')}
         action={
-          <RequireRole min="admin">
+          <RequireRole min="manager">
             <Button onClick={() => setCreateAgentOpen(true)}>
               <UserPlus className="size-4" />
               Novo usuário
@@ -333,8 +333,8 @@ export function MembersTab() {
       />
 
       {/* Domínio de e-mail — usado para montar o login de novos
-          atendentes automaticamente (nome@dominio). Admin+ only. */}
-      <RequireRole min="admin">
+          atendentes automaticamente (nome@dominio). Manager+ only. */}
+      <RequireRole min="manager">
         <Card>
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -522,7 +522,13 @@ export function MembersTab() {
                           className="w-36 bg-muted border-border text-foreground"
                           disabled={isBusy}
                         >
-                          <SelectValue placeholder="Sem setor" />
+                          <SelectValue placeholder="Sem setor">
+                            {(value: string | null) =>
+                              !value || value === '__none__'
+                                ? 'Sem setor'
+                                : (departmentOptions.find((d) => d.id === value)?.name ?? 'Sem setor')
+                            }
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__none__">Sem setor</SelectItem>
@@ -557,7 +563,9 @@ export function MembersTab() {
                           className="w-32 bg-muted border-border text-foreground"
                           disabled={isBusy}
                         >
-                          <SelectValue />
+                          <SelectValue>
+                            {(value: AccountRole | null) => (value ? tRoles(value) : '')}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {EDITABLE_ROLES.map((r) => (
@@ -576,7 +584,7 @@ export function MembersTab() {
                       </span>
                     )}
 
-                    {/* Remove. Admin+ only; never on the owner row;
+                    {/* Remove. Manager+ only; never on the owner row;
                         never on yourself. Pre-polish styling was
                         neutral-default + red-on-hover — the
                         destructive intent was invisible until the

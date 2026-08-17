@@ -45,9 +45,9 @@ export async function resolveInstanceAccountId(
     return requestedAccountId;
   }
 
-  if (!hasMinRole(ctx.role, "admin")) {
+  if (!hasMinRole(ctx.role, "manager")) {
     throw new ForbiddenError(
-      "This action requires the 'admin' role or higher",
+      "This action requires the 'manager' role or higher",
     );
   }
   return ctx.accountId;

@@ -46,7 +46,7 @@ import { sql } from "drizzle-orm";
 
 export const accountRoleEnum = pgEnum("account_role", [
   "owner",
-  "admin",
+  "manager",
   "agent",
   "viewer",
 ]);
@@ -353,7 +353,7 @@ export const autoReplySettings = pgTable("auto_reply_settings", {
   businessHours: jsonb("business_hours").notNull().default(DEFAULT_BUSINESS_HOURS),
   awayEnabled: boolean("away_enabled").notNull().default(false),
   awayMessage: text("away_message").notNull().default(DEFAULT_AWAY_MESSAGE),
-  // Owner/admin-only toggle (see /api/settings/auto-reply): when on,
+  // Owner/manager-only toggle (see /api/settings/auto-reply): when on,
   // the business-hours cron sweep (src/app/api/cron/business-hours/route.ts)
   // auto-pauses every open conversation the moment `businessHours`
   // says the account is closed (after-hours, lunch break, …), and

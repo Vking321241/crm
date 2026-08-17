@@ -1,6 +1,6 @@
 // ============================================================
-// PATCH  /api/custom-fields/[id] — rename / retype. Admin+.
-// DELETE /api/custom-fields/[id]. Admin+.
+// PATCH  /api/custom-fields/[id] — rename / retype. Manager+.
+// DELETE /api/custom-fields/[id]. Manager+.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -15,7 +15,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
     const { id } = await params;
 
     const limit = checkRateLimit(`admin:customFieldUpdate:${ctx.userId}`, RATE_LIMITS.adminAction);
@@ -79,7 +79,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole("manager");
     const { id } = await params;
 
     const limit = checkRateLimit(`admin:customFieldDelete:${ctx.userId}`, RATE_LIMITS.adminAction);
