@@ -225,7 +225,15 @@ async function processInbound(instanceId: string, body: unknown) {
             .update(contacts)
             .set({ avatarUrl: savedUrl, updatedAt: new Date() })
             .where(eq(contacts.id, contact.id));
+        } else {
+          console.error("[uazapi webhook] profile picture resolved but failed to save via saveInboundMedia, url:", picResult.data.url);
         }
+      } else {
+        console.error("[uazapi webhook] profile picture fetch returned no url:", picResult.error);
+        await db
+          .insert(webhookDebugLog)
+          .values({ source: "uazapi-avatar", body: (picResult.raw ?? { error: picResult.error }) as object })
+          .catch(() => {});
       }
     } catch (err) {
       console.error("[uazapi webhook] profile picture fetch failed:", err);

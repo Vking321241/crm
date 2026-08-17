@@ -378,16 +378,22 @@ export async function sendMedia(
 export async function getProfilePicture(
   cfg: UazapiInstanceConfig,
   phone: string,
-): Promise<UazapiResult<{ url: string }>> {
+): Promise<UazapiResult<{ url: string }> & { raw?: unknown }> {
   if (!cfg.token) return { ok: false, error: "Instance is not connected" };
   const res = await request<Record<string, unknown>>(
     `${trimBase(cfg.baseUrl)}/chat/GetProfileImage`,
     { token: cfg.token },
     { number: toDestination(phone) },
   );
-  if (!res.ok || !res.data) return { ok: false, error: res.error };
+  if (!res.ok || !res.data) return { ok: false, error: res.error, raw: res };
   const url = pick(res.data, "url", "profilePictureURL", "imgUrl", "link", "image");
-  if (!url) return { ok: false, error: "No profile picture available" };
+  // TEMP DIAGNOSTIC — field names above are an unverified guess (see
+  // the equivalent note on parseUazapiWebhook's media fields). `raw`
+  // is captured into webhook_debug_log by the caller on failure so
+  // the real shape can be read from GET /api/debug/webhook-log
+  // instead of container logs we don't have access to. Safe to trim
+  // once confirmed working.
+  if (!url) return { ok: false, error: "No profile picture available", raw: res.data };
   return { ok: true, data: { url } };
 }
 
