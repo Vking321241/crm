@@ -95,12 +95,11 @@ interface AuthContextValue {
   isOwner: boolean;
   isManager: boolean;
   isAgent: boolean;
-  isViewer: boolean;
   canManageMembers: boolean;
   canEditSettings: boolean;
   canSendMessages: boolean;
-  /** Modules this user can access — for owner/admin this is every
-   *  known module; for agent/viewer it's their explicit grants. */
+  /** Modules this user can access — for owner/manager this is every
+   *  known module; for agent it's their explicit grants. */
   permissions: Set<PermissionModule>;
   hasPermission: (module: PermissionModule) => boolean;
 }
@@ -199,7 +198,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isOwner: role === "owner",
       isManager: role === "manager",
       isAgent: role === "agent",
-      isViewer: role === "viewer",
       canManageMembers: role ? canManageMembersFor(role) : false,
       canEditSettings: role ? canEditSettingsFor(role) : false,
       canSendMessages: role ? canSendMessagesFor(role) : false,
@@ -255,7 +253,6 @@ export function useAuth(): AuthContextValue {
       isOwner: false,
       isManager: false,
       isAgent: false,
-      isViewer: false,
       canManageMembers: false,
       canEditSettings: false,
       canSendMessages: false,

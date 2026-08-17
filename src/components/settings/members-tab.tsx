@@ -15,8 +15,8 @@
 //
 // Role-gating
 //   The tab itself is reachable by any member, but mutation buttons
-//   are wrapped in `<RequireRole min="manager">` / `useCan` so an
-//   agent or viewer sees the roster read-only. The server-side
+//   are wrapped in `<RequireRole min="manager">` / `useCan` so a
+//   plain agent sees the roster read-only. The server-side
 //   RPCs (set_member_role, remove_account_member) double-check
 //   the role anyway.
 // ============================================================
@@ -95,13 +95,12 @@ interface DepartmentOption {
 const EDITABLE_ROLES: { value: AccountRole }[] = [
   { value: 'manager' },
   { value: 'agent' },
-  { value: 'viewer' },
 ];
 
 // Per-role chip metadata (icon / label / colour) lives in the shared
 // ROLE_META module so this roster and the Overview identity chip can't
 // drift. The colour scale runs amber (owner — scarce, immutable) →
-// primary (manager) → muted (agent / viewer).
+// primary (manager) → muted (agent).
 
 function fmtDate(iso: string): string {
   // Match the rest of the dashboard's locale-light formatting.

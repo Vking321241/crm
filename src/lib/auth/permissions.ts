@@ -3,7 +3,7 @@
 //
 // Layered on top of the coarse `accountRole` hierarchy
 // (src/lib/auth/roles.ts): owner and admin always see every module,
-// no matter what's in `user_permissions`. For agent/viewer rows,
+// no matter what's in `user_permissions`. For agent rows,
 // access to any given module is OFF by default and must be
 // explicitly granted — that's what lets an admin turn a plain agent
 // into a "gerente" with full visibility (grant every module) or
@@ -86,7 +86,7 @@ export function hasModuleAccess(
 
 /** All module keys the given role effectively has access to. For
  *  owner/admin this is every module (grants are irrelevant); for
- *  agent/viewer it's exactly the granted set intersected with the
+ *  agent it's exactly the granted set intersected with the
  *  known catalog. */
 export function effectiveModules(
   role: string,

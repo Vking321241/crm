@@ -48,7 +48,6 @@
     "roleOwner": "Proprietário",
     "roleManager": "Gerente",
     "roleAgent": "Agente",
-    "roleViewer": "Visualizador",
     "closeMenu": "Fechar menu",
     "defaultUser": "Usuário",
     "defaultAvatar": "Avatar",
@@ -1388,8 +1387,6 @@
       "managerHint": "Gerencia membros + configurações do espaço de trabalho",
       "agent": "Agente",
       "agentHint": "Usa as funcionalidades; sem acesso a configurações",
-      "viewer": "Visualizador",
-      "viewerHint": "Somente leitura em todo o aplicativo",
       "owner": "Proprietário",
       "ownerHint": "Controle total sobre a conta e o faturamento"
     },

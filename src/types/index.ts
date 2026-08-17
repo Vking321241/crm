@@ -65,7 +65,7 @@ export interface Account {
  * Hydrated member row for the Settings → Members tab. Combines
  * the profile and its account_role for a single member of the
  * caller's account. Sensitive fields (email) are populated only
- * when the caller has admin+ — agents and viewers see name +
+ * when the caller has admin+ — agents see name +
  * avatar + role only.
  */
 export interface AccountMember {

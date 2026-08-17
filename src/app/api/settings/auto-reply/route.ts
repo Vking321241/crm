@@ -67,7 +67,7 @@ async function loadOrCreate(db: Db, accountId: string) {
 
 export async function GET() {
   try {
-    const ctx = await requireRole("viewer");
+    const ctx = await requireRole("agent");
     const row = await loadOrCreate(ctx.db, ctx.accountId);
     return NextResponse.json({
       welcome_enabled: row.welcomeEnabled,

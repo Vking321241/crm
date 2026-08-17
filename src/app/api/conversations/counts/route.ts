@@ -6,7 +6,7 @@
 // list happens to be scoped to right now.
 //
 // Mirrors the same visibility rule as GET /api/conversations: a
-// plain agent/viewer's Ativos/Fechados counts are their own only;
+// plain agent's Ativos/Fechados counts are their own only;
 // Pendentes always counts the whole shared queue.
 // ============================================================
 

@@ -2,7 +2,7 @@
 // GET /api/tasks — account-wide task list for the standalone Central
 // de Tarefas (Hoje / Atrasadas / Concluídas), joined with the
 // contact/conversation each task hangs off of so the UI can deep-link
-// back into the inbox. Any member (viewer included) can read.
+// back into the inbox. Any member can read.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -13,7 +13,7 @@ import { conversationTasks, conversations, contacts } from "@/db/schema";
 
 export async function GET() {
   try {
-    const ctx = await requireRole("viewer");
+    const ctx = await requireRole("agent");
 
     const rows = await ctx.db
       .select({

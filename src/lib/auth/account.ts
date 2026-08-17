@@ -110,7 +110,7 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
 /**
  * Resolve the caller's account context and enforce access to a
  * granular permission module (src/lib/auth/permissions.ts). Owner/
- * admin always pass — see `roleHasFullAccess`; agent/viewer need an
+ * admin always pass — see `roleHasFullAccess`; agent need an
  * explicit grant in `user_permissions`.
  */
 export async function requireModule(module: PermissionModule): Promise<AccountContext> {

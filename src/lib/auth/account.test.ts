@@ -66,7 +66,7 @@ describe("requireRole", () => {
   });
 
   it("throws ForbiddenError when the caller is below the minimum role", async () => {
-    getSessionUser.mockResolvedValue(makeSessionUser({ accountRole: "viewer" }));
+    getSessionUser.mockResolvedValue(makeSessionUser({ accountRole: "agent" }));
     const err = await requireRole("manager").catch((e) => e);
     expect(err).toBeInstanceOf(ForbiddenError);
   });

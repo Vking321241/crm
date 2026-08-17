@@ -32,7 +32,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const ctx = await requireRole("viewer");
+    const ctx = await requireRole("agent");
     const { id } = await params;
 
     const conversation = await loadOwnedConversation(ctx.db, ctx.accountId, id);

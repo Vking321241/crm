@@ -48,7 +48,6 @@
     "roleOwner": "Owner",
     "roleManager": "Manager",
     "roleAgent": "Agent",
-    "roleViewer": "Viewer",
     "closeMenu": "Close menu",
     "defaultUser": "User",
     "defaultAvatar": "Avatar",
@@ -1388,8 +1387,6 @@
       "managerHint": "Manage members + workspace settings",
       "agent": "Agent",
       "agentHint": "Use features; no settings",
-      "viewer": "Viewer",
-      "viewerHint": "Read-only across the app",
       "owner": "Owner",
       "ownerHint": "Full control over account and billing"
     },

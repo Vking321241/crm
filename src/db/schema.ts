@@ -48,7 +48,6 @@ export const accountRoleEnum = pgEnum("account_role", [
   "owner",
   "manager",
   "agent",
-  "viewer",
 ]);
 
 export const authTokenPurposeEnum = pgEnum("auth_token_purpose", [
@@ -602,7 +601,7 @@ export const conversations = pgTable(
 // conversation_transfers — audit trail of every reassignment
 // (agent-to-agent) and department transfer, so a manager/owner can
 // see who handed a conversation to whom and how often (Relatórios).
-// Agent/viewer members never see this — gated to `reports` access,
+// Plain agent members never see this — gated to `reports` access,
 // same as the rest of Estatísticas (see /api/conversations/transfers).
 // ------------------------------------------------------------
 export const conversationTransfers = pgTable(
@@ -847,13 +846,12 @@ export const webhookDebugLog = pgTable(
 
 // ------------------------------------------------------------
 // user_permissions — per-user, per-module access grants. Layered on
-// top of `users.accountRole`: owner/admin always have full access
+// top of `users.accountRole`: owner/manager always have full access
 // (see src/lib/auth/permissions.ts) regardless of what's in this
-// table, so this only matters for agent/viewer rows. Lets an admin
-// give a single agent ("gerente") access to modules their role
-// wouldn't normally unlock (reports, spy mode, internal chat, …)
-// without promoting them to admin, or restrict another agent down
-// to a single module. `module` is a free-text key validated against
+// table, so this only matters for plain agent rows. Lets a manager
+// give a single agent access to modules their role wouldn't normally
+// unlock (reports, spy mode, internal chat, …), or restrict another
+// agent down to a single module. `module` is a free-text key validated against
 // PERMISSION_MODULES in application code rather than a pgEnum, so
 // adding a new module doesn't require a migration.
 // ------------------------------------------------------------

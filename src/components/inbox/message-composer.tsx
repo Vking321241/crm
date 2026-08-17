@@ -211,7 +211,6 @@ export function MessageComposer({
   const cancelledRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Viewers (read-only role) can browse the inbox but never send.
   const canSend = useCan("send-messages");
   const readOnly = !canSend;
   const inputsDisabled = readOnly;

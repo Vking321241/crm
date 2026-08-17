@@ -3,11 +3,11 @@
 //
 // Lists the caller's account conversations, contact joined in,
 // newest-first. Supports `?status=open|pending|closed` and
-// `?search=<name-or-phone>`. Any account member can read (viewer
-// included) — mutations are gated at agent+ in the [id] routes.
+// `?search=<name-or-phone>`. Any account member can read — mutations
+// are gated at agent+ in the [id] routes.
 //
-// Visibility: owner/admin always see every conversation. A plain
-// agent/viewer only sees their OWN — Ativos/Fechados are scoped to
+// Visibility: owner/manager always see every conversation. A plain
+// agent only sees their OWN — Ativos/Fechados are scoped to
 // `assigned_agent_id = caller` automatically, no `assignedToMe`
 // param needed. "Pendentes" is the one exception: it stays the
 // shared department queue (unfiltered) so anyone can pick a waiting

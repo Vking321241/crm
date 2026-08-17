@@ -1,6 +1,6 @@
 // ============================================================
 // GET  /api/tags — list, any account member (agent+... actually
-//      any authenticated member, including viewers — read access
+//      any authenticated member — read access
 //      is unrestricted per AGENTS.md: "qualquer membro para
 //      leitura").
 // POST /api/tags — create. Manager+ (settings-class).

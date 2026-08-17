@@ -3,7 +3,7 @@
 //
 // Mirrors the `account_role_enum` Postgres type from migration
 // 017_account_sharing.sql. The hierarchy is intentionally a flat
-// ordinal (owner=4 … viewer=1) — it matches the same CASE
+// ordinal (owner=3 … agent=1) — it matches the same CASE
 // expression the `is_account_member(account_id, min_role)` SQL
 // helper uses, so server-side TypeScript guards and database-side
 // RLS speak the same language.
@@ -15,11 +15,10 @@
 // changes a one-file diff.
 // ============================================================
 
-export type AccountRole = "owner" | "manager" | "agent" | "viewer";
+export type AccountRole = "owner" | "manager" | "agent";
 
 /** Ordered list of every valid role, lowest privilege first. */
 export const ACCOUNT_ROLES: readonly AccountRole[] = [
-  "viewer",
   "agent",
   "manager",
   "owner",
@@ -32,12 +31,10 @@ export const ACCOUNT_ROLES: readonly AccountRole[] = [
 export function roleRank(role: AccountRole): number {
   switch (role) {
     case "owner":
-      return 4;
-    case "manager":
       return 3;
-    case "agent":
+    case "manager":
       return 2;
-    case "viewer":
+    case "agent":
       return 1;
   }
 }
@@ -83,19 +80,10 @@ export function canEditSettings(role: AccountRole): boolean {
 /**
  * Owner / manager / agent: write operational data — send messages,
  * create contacts, move deals, run broadcasts, edit automations.
- * Viewers are read-only.
+ * Every role can — "agent" is the account's floor.
  */
 export function canSendMessages(role: AccountRole): boolean {
   return hasMinRole(role, "agent");
-}
-
-/**
- * Viewer: read-only across everything. Provided as a positive
- * predicate so UI gates read naturally (`if (canViewOnly(role))`
- * shows the "Read-only" tooltip without inverting `canSendMessages`).
- */
-export function canViewOnly(role: AccountRole): boolean {
-  return role === "viewer";
 }
 
 /** Owner only: irreversible destructive operations. */

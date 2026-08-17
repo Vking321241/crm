@@ -96,7 +96,7 @@ export interface SessionUser {
   avatarUrl: string | null;
   createdAt: Date;
   accountId: string;
-  accountRole: "owner" | "manager" | "agent" | "viewer";
+  accountRole: "owner" | "manager" | "agent";
   account: {
     id: string;
     name: string;

@@ -1,6 +1,6 @@
 // ============================================================
 // GET  /api/conversations/[id]/tasks — list tasks for a conversation,
-//      newest due first. Any member (viewer included) can read.
+//      newest due first. Any member can read.
 // POST /api/conversations/[id]/tasks — create a scheduled task.
 //      Body: { note, dueAt (ISO), assignedTo? }. Agent+.
 // ============================================================
@@ -18,7 +18,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const ctx = await requireRole("viewer");
+    const ctx = await requireRole("agent");
     const { id } = await params;
 
     const existing = await loadOwnedConversation(ctx.db, ctx.accountId, id);
