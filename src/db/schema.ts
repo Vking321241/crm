@@ -979,6 +979,29 @@ export const conversationTasks = pgTable(
   ],
 );
 
+const DEFAULT_BIRTHDAY_INDIVIDUAL_MESSAGE =
+  "🎉 Feliz aniversário, {nome}! Desejamos um ótimo dia. 🎂";
+const DEFAULT_BIRTHDAY_MONTHLY_MESSAGE = "Aniversariantes de {mes}:\n\n{lista}";
+
+// ------------------------------------------------------------
+// birthday_settings — one row per account, the editable text of the
+// two messages /api/cron/birthdays sends. `{nome}` (individual) and
+// `{mes}` / `{lista}` (monthly) are substituted at send time —
+// see applyBirthdayTemplate in that route. No row yet = the
+// DEFAULT_BIRTHDAY_* constants above apply (same "default until
+// customized" shape as auto_reply_settings).
+// ------------------------------------------------------------
+export const birthdaySettings = pgTable("birthday_settings", {
+  accountId: uuid("account_id")
+    .primaryKey()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  individualMessage: text("individual_message").notNull().default(DEFAULT_BIRTHDAY_INDIVIDUAL_MESSAGE),
+  monthlyMessage: text("monthly_message").notNull().default(DEFAULT_BIRTHDAY_MONTHLY_MESSAGE),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export { DEFAULT_BIRTHDAY_INDIVIDUAL_MESSAGE, DEFAULT_BIRTHDAY_MONTHLY_MESSAGE };
+
 // ------------------------------------------------------------
 // collaborator_birthdays — the roster driving /api/cron/birthdays.
 // `birthDate`'s year is never read, only month/day (matched against

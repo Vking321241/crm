@@ -5,10 +5,13 @@ import { db } from "@/db/client";
 import {
   collaboratorBirthdays,
   birthdayMonthlySummaries,
+  birthdaySettings,
   contacts,
   conversations,
   messages,
   whatsappInstances,
+  DEFAULT_BIRTHDAY_INDIVIDUAL_MESSAGE,
+  DEFAULT_BIRTHDAY_MONTHLY_MESSAGE,
 } from "@/db/schema";
 import { decrypt } from "@/lib/whatsapp/encryption";
 import { sendText } from "@/lib/whatsapp/uazapi-client";
@@ -72,6 +75,24 @@ export async function GET(request: Request) {
     return instance;
   }
 
+  const templateCache = new Map<string, { individual: string; monthly: string }>();
+  async function getTemplates(accountId: string) {
+    let templates = templateCache.get(accountId);
+    if (!templates) {
+      const [row] = await db
+        .select()
+        .from(birthdaySettings)
+        .where(eq(birthdaySettings.accountId, accountId))
+        .limit(1);
+      templates = {
+        individual: row?.individualMessage ?? DEFAULT_BIRTHDAY_INDIVIDUAL_MESSAGE,
+        monthly: row?.monthlyMessage ?? DEFAULT_BIRTHDAY_MONTHLY_MESSAGE,
+      };
+      templateCache.set(accountId, templates);
+    }
+    return templates;
+  }
+
   // --- Individual "happy birthday" sends ---
   const todaysBirthdays = await db
     .select()
@@ -90,11 +111,9 @@ export async function GET(request: Request) {
     const instance = await getInstance(person.accountId);
     if (!instance || !person.phone) continue;
 
-    const result = await sendText(
-      instance,
-      person.phone,
-      `🎉 Feliz aniversário, ${person.name}! Desejamos um ótimo dia. 🎂`,
-    );
+    const templates = await getTemplates(person.accountId);
+    const text = templates.individual.replace(/\{nome\}/g, person.name);
+    const result = await sendText(instance, person.phone, text);
     if (result.ok) {
       await db
         .update(collaboratorBirthdays)
@@ -154,7 +173,10 @@ export async function GET(request: Request) {
       const lines = sorted.map(
         (p) => `🎂 ${String(new Date(p.birthDate).getUTCDate()).padStart(2, "0")}/${String(month).padStart(2, "0")} — ${p.name}`,
       );
-      const text = `Aniversariantes de ${MONTH_NAMES[month - 1]}:\n\n${lines.join("\n")}`;
+      const templates = await getTemplates(group.accountId);
+      const text = templates.monthly
+        .replace(/\{mes\}/g, MONTH_NAMES[month - 1])
+        .replace(/\{lista\}/g, lines.join("\n"));
 
       const result = await sendText(instance, group.phone, text);
       if (!result.ok) continue;

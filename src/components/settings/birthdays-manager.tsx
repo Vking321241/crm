@@ -255,6 +255,118 @@ export function BirthdaysManager() {
           )}
         </CardContent>
       </Card>
+
+      <div className="mt-6">
+        <BirthdayMessagesCard />
+      </div>
     </div>
+  );
+}
+
+interface BirthdayMessages {
+  individual_message: string;
+  monthly_message: string;
+}
+
+/**
+ * Editable text of the two messages /api/cron/birthdays sends.
+ * `{nome}` (individual) and `{mes}` / `{lista}` (monthly) are
+ * substituted at send time — see that route's getTemplates().
+ */
+function BirthdayMessagesCard() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [individualMessage, setIndividualMessage] = useState('');
+  const [monthlyMessage, setMonthlyMessage] = useState('');
+
+  useEffect(() => {
+    fetch('/api/settings/birthday-messages', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: BirthdayMessages | null) => {
+        if (data) {
+          setIndividualMessage(data.individual_message);
+          setMonthlyMessage(data.monthly_message);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSave() {
+    if (!individualMessage.includes('{nome}')) {
+      toast.error('A mensagem individual precisa conter {nome}');
+      return;
+    }
+    if (!monthlyMessage.includes('{lista}')) {
+      toast.error('A mensagem mensal precisa conter {lista}');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/settings/birthday-messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          individual_message: individualMessage,
+          monthly_message: monthlyMessage,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'failed');
+      toast.success('Mensagens salvas.');
+    } catch (err) {
+      toast.error(err instanceof Error && err.message !== 'failed' ? err.message : 'Falha ao salvar.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-foreground">Personalizar mensagens</CardTitle>
+        <CardDescription className="text-muted-foreground">
+          A individual usa <code className="text-foreground">{'{nome}'}</code>; a mensal usa{' '}
+          <code className="text-foreground">{'{mes}'}</code> e{' '}
+          <code className="text-foreground">{'{lista}'}</code> (a lista de aniversariantes já formatada).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="size-6 animate-spin text-primary" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Mensagem individual (no dia do aniversário)
+              </label>
+              <textarea
+                value={individualMessage}
+                onChange={(e) => setIndividualMessage(e.target.value)}
+                rows={3}
+                className="w-full resize-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Mensagem mensal (pro grupo, todo dia 1º)
+              </label>
+              <textarea
+                value={monthlyMessage}
+                onChange={(e) => setMonthlyMessage(e.target.value)}
+                rows={4}
+                className="w-full resize-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50"
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+              Salvar mensagens
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
