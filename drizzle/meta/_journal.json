@@ -190,6 +190,13 @@
       "when": 1787003553298,
       "tag": "0026_shiny_doorman",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1787003985825,
+      "tag": "0027_cuddly_ultimates",
+      "breakpoints": true
     }
   ]
 }

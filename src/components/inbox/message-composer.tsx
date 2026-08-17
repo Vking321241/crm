@@ -44,6 +44,7 @@ import { useTranslations } from "next-intl";
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive";
 import type { QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
+import { MentionTextarea, type NoteMention } from "./mention-textarea";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -107,7 +108,7 @@ interface MessageComposerProps {
   contactName?: string;
   /** Drops an internal-only note into the timeline — never reaches
    *  the customer. Omit to hide the note button entirely. */
-  onAddNote?: (body: string) => Promise<void> | void;
+  onAddNote?: (body: string, mentions: NoteMention[]) => Promise<void> | void;
 }
 
 /** Fills the small set of variables quick replies support. Unknown
@@ -146,6 +147,7 @@ export function MessageComposer({
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const [noteMentions, setNoteMentions] = useState<NoteMention[]>([]);
   const [savingNote, setSavingNote] = useState(false);
 
   // "/" trigger — the whole account's quick replies are a small,
@@ -733,11 +735,15 @@ export function MessageComposer({
               </PopoverTrigger>
               <PopoverContent align="start" className="w-72 space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  Visível só para a equipe — o cliente nunca vê isso.
+                  Visível só para a equipe — o cliente nunca vê isso. Digite @ para marcar alguém.
                 </p>
-                <textarea
+                <MentionTextarea
                   value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
+                  mentions={noteMentions}
+                  onChange={(next, mentions) => {
+                    setNoteText(next);
+                    setNoteMentions(mentions);
+                  }}
                   placeholder="Escreva a nota..."
                   rows={3}
                   className="w-full resize-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50"
@@ -749,8 +755,9 @@ export function MessageComposer({
                   onClick={async () => {
                     setSavingNote(true);
                     try {
-                      await onAddNote(noteText.trim());
+                      await onAddNote(noteText.trim(), noteMentions);
                       setNoteText("");
+                      setNoteMentions([]);
                       setNoteOpen(false);
                     } finally {
                       setSavingNote(false);

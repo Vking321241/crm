@@ -304,6 +304,10 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   // admins so Divary's team can send the new client their access
   // link. See signup_leads below.
   "signup_lead",
+  // Someone @mentioned this user (directly, or via a department they
+  // belong to) in a conversation's internal note — see POST
+  // /api/conversations/[id]/internal-notes.
+  "note_mention",
 ]);
 
 export const presenceStatusEnum = pgEnum("presence_status", ["online", "away"]);

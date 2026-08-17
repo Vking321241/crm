@@ -48,6 +48,7 @@ import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
 import { EditMessageDialog } from "./edit-message-dialog";
 import { ForwardMessageDialog } from "./forward-message-dialog";
+import type { NoteMention } from "./mention-textarea";
 
 // Mirrors MESSAGE_EDIT_WINDOW_MINUTES in src/lib/whatsapp/uazapi-client.ts
 // (not imported directly to avoid pulling the whole UAZAPI adapter into
@@ -515,12 +516,12 @@ export function MessageThread({
   }, [conversation]);
 
   const handleAddNote = useCallback(
-    async (body: string) => {
+    async (body: string, mentions: NoteMention[]) => {
       if (!conversation) return;
       const res = await fetch(`/api/conversations/${conversation.id}/internal-notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, mentions }),
       });
       if (!res.ok) {
         toast.error("Falha ao adicionar a nota");
