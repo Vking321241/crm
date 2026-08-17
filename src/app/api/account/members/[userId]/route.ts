@@ -21,7 +21,7 @@ import { and, eq, ne } from "drizzle-orm";
 
 import { requireRole, toErrorResponse, ForbiddenError } from "@/lib/auth/account";
 import { isAccountRole } from "@/lib/auth/roles";
-import { users } from "@/db/schema";
+import { departments, users } from "@/db/schema";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -40,23 +40,52 @@ export async function PATCH(
 
     const { userId } = await params;
 
-    const body = (await request.json().catch(() => null)) as { role?: unknown } | null;
-    const role = body?.role;
+    const body = (await request.json().catch(() => null)) as
+      | { role?: unknown; department_id?: unknown }
+      | null;
 
-    if (!isAccountRole(role)) {
-      return NextResponse.json(
-        { error: "'role' must be one of owner, admin, agent, viewer" },
-        { status: 400 },
-      );
+    const hasRole = body && "role" in body;
+    const hasDepartment = body && "department_id" in body;
+    if (!hasRole && !hasDepartment) {
+      return NextResponse.json({ error: "'role' or 'department_id' is required" }, { status: 400 });
     }
-    if (role === "owner") {
-      return NextResponse.json(
-        { error: "Use POST /api/account/transfer-ownership to promote a member to owner" },
-        { status: 400 },
-      );
+
+    const role = body?.role;
+    if (hasRole) {
+      if (!isAccountRole(role)) {
+        return NextResponse.json(
+          { error: "'role' must be one of owner, admin, agent, viewer" },
+          { status: 400 },
+        );
+      }
+      if (role === "owner") {
+        return NextResponse.json(
+          { error: "Use POST /api/account/transfer-ownership to promote a member to owner" },
+          { status: 400 },
+        );
+      }
+      if (userId === ctx.userId) {
+        return NextResponse.json({ error: "Cannot change your own role" }, { status: 400 });
+      }
     }
-    if (userId === ctx.userId) {
-      return NextResponse.json({ error: "Cannot change your own role" }, { status: 400 });
+
+    let departmentId: string | null | undefined;
+    if (hasDepartment) {
+      const raw = body?.department_id;
+      if (raw !== null && typeof raw !== "string") {
+        return NextResponse.json({ error: "'department_id' must be a string or null" }, { status: 400 });
+      }
+      if (raw) {
+        const [dept] = await ctx.db
+          .select({ id: departments.id })
+          .from(departments)
+          .where(and(eq(departments.id, raw), eq(departments.accountId, ctx.accountId)))
+          .limit(1);
+        if (!dept) {
+          return NextResponse.json({ error: "Department not found" }, { status: 400 });
+        }
+      }
+      departmentId = raw;
     }
 
     const [target] = await ctx.db
@@ -74,14 +103,18 @@ export async function PATCH(
         { status: 403 },
       );
     }
-    if (target.role === "owner") {
+    if (hasRole && target.role === "owner") {
       return NextResponse.json(
         { error: "Use transfer ownership to demote an owner" },
         { status: 400 },
       );
     }
 
-    await ctx.db.update(users).set({ accountRole: role, updatedAt: new Date() }).where(eq(users.id, userId));
+    const update: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
+    if (hasRole) update.accountRole = role as (typeof users.$inferInsert)["accountRole"];
+    if (hasDepartment) update.departmentId = departmentId;
+
+    await ctx.db.update(users).set(update).where(eq(users.id, userId));
 
     return NextResponse.json({ ok: true });
   } catch (err) {

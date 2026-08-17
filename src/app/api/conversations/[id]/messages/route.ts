@@ -18,7 +18,7 @@ import { NextResponse } from "next/server";
 import { asc, eq, inArray } from "drizzle-orm";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
-import { conversations, contacts, messages, messageReactions } from "@/db/schema";
+import { conversations, contacts, departments, messages, messageReactions, users } from "@/db/schema";
 import { toApiMessage, toApiReaction, loadOwnedConversation } from "../../_shared";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import { loadInstance, toUazapiConfig } from "@/lib/whatsapp/instance-context";
@@ -62,6 +62,19 @@ export async function GET(
       else reactionsByMessage.set(r.messageId, [mapped]);
     }
 
+    // Sender's display name, for the small "sent by X" label
+    // audio/video bubbles show in the CRM UI (see message-bubble.tsx)
+    // instead of baking a signature into content that can't carry one.
+    const senderIds = [...new Set(rows.map((m) => m.senderId).filter((v): v is string => !!v))];
+    const senderNameById = new Map<string, string>();
+    if (senderIds.length) {
+      const senderRows = await ctx.db
+        .select({ id: users.id, fullName: users.fullName })
+        .from(users)
+        .where(inArray(users.id, senderIds));
+      for (const u of senderRows) senderNameById.set(u.id, u.fullName);
+    }
+
     if (conversation.unreadCount > 0) {
       await ctx.db
         .update(conversations)
@@ -72,6 +85,7 @@ export async function GET(
     return NextResponse.json({
       messages: rows.map((m) => ({
         ...toApiMessage(m),
+        sender_name: m.senderId ? senderNameById.get(m.senderId) : undefined,
         reactions: reactionsByMessage.get(m.id) ?? [],
       })),
     });
@@ -138,6 +152,36 @@ export async function POST(
     }
     const cfg = toUazapiConfig(instance);
 
+    // Bold "*Setor - Nome*" signature, auto-prepended to text/image/
+    // document sends for whoever has a "setor" assigned (Configurações
+    // → Membros). Deliberately skipped for audio/video — WhatsApp
+    // voice notes can't carry a caption at all, and the client asked
+    // for those two to identify the sender in the CRM's own UI
+    // instead (see message-bubble.tsx, driven by messages.sender_id)
+    // rather than baking it into the WhatsApp content itself.
+    const appliesSignature = body.message_type === "text" || body.message_type === "image" || body.message_type === "document";
+    let signature: string | null = null;
+    if (appliesSignature) {
+      const [sender] = await ctx.db
+        .select({ fullName: users.fullName, departmentName: departments.name })
+        .from(users)
+        .leftJoin(departments, eq(departments.id, users.departmentId))
+        .where(eq(users.id, ctx.userId))
+        .limit(1);
+      if (sender?.departmentName) {
+        signature = `*${sender.departmentName} - ${sender.fullName}*`;
+      }
+    }
+    const withSignature = (text: string | undefined | null): string | undefined => {
+      const trimmed = text?.trim() || "";
+      if (!signature) return trimmed || undefined;
+      return trimmed ? `${signature}\n${trimmed}` : signature;
+    };
+
+    const outboundText =
+      body.message_type === "text" ? withSignature(body.content_text)! : body.content_text?.trim();
+    const outboundCaption = appliesSignature && isMedia ? withSignature(body.content_text) : body.content_text || undefined;
+
     let result;
     if (isMedia) {
       // UAZAPI can't authenticate against our own /api/files/<id>
@@ -152,12 +196,18 @@ export async function POST(
         contact.phone,
         body.message_type as UazapiMediaType,
         stored.base64,
-        body.content_text || undefined,
+        outboundCaption,
         body.filename,
       );
     } else {
-      result = await sendText(cfg, contact.phone, body.content_text!.trim());
+      result = await sendText(cfg, contact.phone, outboundText!);
     }
+
+    // What lands in our own DB (and therefore the inbox UI) matches
+    // exactly what was sent to WhatsApp for text/image/document, so
+    // the signature shows up consistently in both places — never a
+    // second, disconnected copy of the text.
+    const storedContentText = isMedia ? outboundCaption ?? null : outboundText ?? null;
 
     const [inserted] = await ctx.db
       .insert(messages)
@@ -166,7 +216,7 @@ export async function POST(
         senderType: "agent",
         senderId: ctx.userId,
         contentType: body.message_type as (typeof messages.$inferInsert)["contentType"],
-        contentText: body.content_text?.trim() || null,
+        contentText: storedContentText,
         mediaUrl: isMedia ? body.media_url : null,
         messageId: result.ok ? result.data?.externalId ?? null : null,
         status: result.ok ? "sent" : "failed",
@@ -177,7 +227,7 @@ export async function POST(
     await ctx.db
       .update(conversations)
       .set({
-        lastMessageText: isMedia ? body.content_text?.trim() || `[${body.message_type}]` : body.content_text!.trim(),
+        lastMessageText: isMedia ? storedContentText || `[${body.message_type}]` : storedContentText!,
         lastMessageAt: new Date(),
         updatedAt: new Date(),
       })

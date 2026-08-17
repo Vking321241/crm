@@ -236,6 +236,11 @@ export interface Message {
   conversation_id: string;
   sender_type: SenderType;
   sender_id?: string;
+  /** Sending agent's display name — only meaningful when sender_type
+   *  is "agent". Used for the small "sent by X" label audio/video
+   *  bubbles show (see message-bubble.tsx); other content types carry
+   *  the sender's identity in the bold signature text itself instead. */
+  sender_name?: string;
   content_type: ContentType;
   content_text?: string;
   media_url?: string;

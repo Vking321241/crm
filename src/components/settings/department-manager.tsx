@@ -140,7 +140,7 @@ export function DepartmentManager() {
     <div>
       <SettingsPanelHead
         title="Setores"
-        description="Grupos de atendimento (ex: Vendas, Suporte) para transferir conversas entre equipes."
+        description="Grupos de atendimento (ex: Vendas, Suporte) para transferir conversas entre equipes. Defina o setor de cada pessoa em Membros — as mensagens dela passam a sair com uma assinatura em negrito (ex: *Vendas - Cleiton*)."
       />
       <Card>
         <CardHeader>

@@ -136,6 +136,13 @@ export const users = pgTable("users", {
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   accountRole: accountRoleEnum("account_role").notNull(),
+  // Which "setor" this member belongs to — drives the bold WhatsApp
+  // signature (e.g. "*Atendimento - Cleiton*") prepended to their
+  // outbound text/image/document sends. Null means no signature is
+  // added. See src/db/schema.ts `departments` below.
+  departmentId: uuid("department_id").references((): AnyPgColumn => departments.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

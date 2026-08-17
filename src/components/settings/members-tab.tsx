@@ -81,6 +81,14 @@ interface Member {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  department_id: string | null;
+  department_name: string | null;
+}
+
+interface DepartmentOption {
+  id: string;
+  name: string;
+  color: string;
 }
 
 // These roles are translated via `useTranslations("Settings.roles")` where they are used.
@@ -113,6 +121,7 @@ export function MembersTab() {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
+  const [departmentOptions, setDepartmentOptions] = useState<DepartmentOption[]>([]);
 
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [editingDomain, setEditingDomain] = useState(false);
@@ -125,7 +134,10 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const mres = await fetch('/api/account/members', { cache: 'no-store' });
+      const [mres, dres] = await Promise.all([
+        fetch('/api/account/members', { cache: 'no-store' }),
+        fetch('/api/departments', { cache: 'no-store' }),
+      ]);
       if (!mres.ok) {
         const payload = await mres.json().catch(() => ({}));
         toast.error(payload.error || 'Falha ao carregar membros');
@@ -133,6 +145,10 @@ export function MembersTab() {
       }
       const mdata = (await mres.json()) as { members: Member[] };
       setMembers(mdata.members);
+      if (dres.ok) {
+        const ddata = await dres.json().catch(() => ({}));
+        setDepartmentOptions((ddata.departments ?? []) as DepartmentOption[]);
+      }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
       toast.error('Não foi possível conectar ao servidor');
@@ -187,6 +203,56 @@ export function MembersTab() {
         ),
       );
       console.error('[MembersTab] role change error:', err);
+      toast.error('Não foi possível conectar ao servidor');
+    } finally {
+      setPendingMemberAction(null);
+    }
+  }
+
+  // Which "setor" a member belongs to — drives the bold WhatsApp
+  // signature (e.g. "*Atendimento - Cleiton*") automatically added to
+  // their outbound text/image/document sends. Same optimistic-update-
+  // then-revert-on-failure shape as the role dropdown above.
+  async function handleDepartmentChange(member: Member, nextDepartmentId: string | null) {
+    if (member.department_id === nextDepartmentId) return;
+    const previous = { id: member.department_id, name: member.department_name };
+    const nextName = departmentOptions.find((d) => d.id === nextDepartmentId)?.name ?? null;
+    setPendingMemberAction(member.user_id);
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.user_id === member.user_id
+          ? { ...m, department_id: nextDepartmentId, department_name: nextName }
+          : m,
+      ),
+    );
+    try {
+      const res = await fetch(`/api/account/members/${member.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department_id: nextDepartmentId }),
+      });
+      if (!res.ok) {
+        setMembers((prev) =>
+          prev.map((m) =>
+            m.user_id === member.user_id
+              ? { ...m, department_id: previous.id, department_name: previous.name }
+              : m,
+          ),
+        );
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Falha ao atualizar o setor');
+        return;
+      }
+      toast.success('Setor atualizado');
+    } catch (err) {
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.user_id === member.user_id
+            ? { ...m, department_id: previous.id, department_name: previous.name }
+            : m,
+        ),
+      );
+      console.error('[MembersTab] department change error:', err);
       toast.error('Não foi possível conectar ao servidor');
     } finally {
       setPendingMemberAction(null);
@@ -439,6 +505,40 @@ export function MembersTab() {
                       inline. Items align to the start on mobile so the
                       role dropdown lines up under the avatar. */}
                   <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Setor — drives the bold WhatsApp signature
+                        prepended to this member's outbound sends (see
+                        POST /api/conversations/[id]/messages). Owner
+                        can have one too (only role changes are
+                        blocked on that row), so no isOwnerRow guard
+                        here. */}
+                    {canManageMembers ? (
+                      <Select
+                        value={member.department_id ?? '__none__'}
+                        onValueChange={(v) =>
+                          handleDepartmentChange(member, v === '__none__' ? null : (v ?? null))
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-36 bg-muted border-border text-foreground"
+                          disabled={isBusy}
+                        >
+                          <SelectValue placeholder="Sem setor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sem setor</SelectItem>
+                          {departmentOptions.map((d) => (
+                            <SelectItem key={d.id} value={d.id}>
+                              {d.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : member.department_name ? (
+                      <span className="inline-flex items-center rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                        {member.department_name}
+                      </span>
+                    ) : null}
+
                     {/* Role display / editor. Inline Select is admin+
                         only AND not allowed on the owner row (owner
                         changes go through transfer, which lands later). */}

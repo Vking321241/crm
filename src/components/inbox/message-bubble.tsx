@@ -65,6 +65,14 @@ function MediaUnavailable({ label, t }: { label: string, t: ReturnType<typeof us
   );
 }
 
+/** Small "who sent this" label for audio/video — those two can't carry
+ *  the bold "*Setor - Nome*" signature text/image/document sends get
+ *  (a voice note has no caption at all), so the CRM shows it here
+ *  instead, locally, rather than baking it into the WhatsApp content. */
+function SenderLabel({ name }: { name: string }) {
+  return <p className="mb-1 text-[11px] font-medium text-muted-foreground">{name}</p>;
+}
+
 function MediaImage({ url, alt }: { url: string; alt: string }) {
   // Media URLs are either UAZAPI-hosted or served from this deployment's
   // own /api/files storage — both directly fetchable by the <img> tag,
@@ -137,9 +145,11 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
         </div>
       );
 
-    case "video":
+    case "video": {
+      const isAgentMsg = message.sender_type === "agent" || message.sender_type === "bot";
       return (
         <div>
+          {isAgentMsg && message.sender_name && <SenderLabel name={message.sender_name} />}
           {message.media_url ? (
             <MediaLightbox kind="video" url={message.media_url} filename={message.content_text}>
               <video
@@ -158,11 +168,13 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
           )}
         </div>
       );
+    }
 
     case "audio": {
       const isAgentMsg = message.sender_type === "agent" || message.sender_type === "bot";
       return (
         <div>
+          {isAgentMsg && message.sender_name && <SenderLabel name={message.sender_name} />}
           {message.media_url ? (
             <VoiceMessagePlayer url={message.media_url} tone={isAgentMsg ? "primary" : "muted"} />
           ) : (

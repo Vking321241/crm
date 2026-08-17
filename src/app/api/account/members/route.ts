@@ -17,7 +17,7 @@ import { asc, count, eq } from "drizzle-orm";
 
 import { getCurrentAccount, requireRole, toErrorResponse } from "@/lib/auth/account";
 import { canManageMembers } from "@/lib/auth/roles";
-import { accounts, users, userPermissions } from "@/db/schema";
+import { accounts, departments, users, userPermissions } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/session";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import { isPermissionModule } from "@/lib/auth/permissions";
@@ -34,8 +34,11 @@ export async function GET() {
         avatarUrl: users.avatarUrl,
         role: users.accountRole,
         joinedAt: users.createdAt,
+        departmentId: users.departmentId,
+        departmentName: departments.name,
       })
       .from(users)
+      .leftJoin(departments, eq(departments.id, users.departmentId))
       .where(eq(users.accountId, ctx.accountId))
       .orderBy(asc(users.createdAt));
 
@@ -48,6 +51,8 @@ export async function GET() {
       avatar_url: row.avatarUrl,
       role: row.role,
       joined_at: row.joinedAt,
+      department_id: row.departmentId ?? null,
+      department_name: row.departmentName ?? null,
     }));
 
     return NextResponse.json({ members });
