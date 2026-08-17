@@ -94,10 +94,19 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   // (loading) return <spinner>`, which meant the tag never mounted and
   // the spinner never cleared. The spinner now overlays the (invisible
   // until loaded) image instead of replacing it.
+  //
+  // The wrapper used to be a *fixed* h-40 (160px) box while the image
+  // itself could grow up to max-h-64 (256px) — taller than its own
+  // container, with no overflow-hidden to clip it. The overflow just
+  // spilled into normal document flow, so whatever rendered next (the
+  // timestamp row, the next message bubble) visually painted over the
+  // bottom of the photo — it read as the image being "cut off" rather
+  // than a bubble stacking bug. `min-h` only sets a floor for the
+  // loading placeholder; once loaded the box grows to fit the image.
   return (
-    <div className="relative h-40 w-60">
+    <div className="relative min-h-40 w-fit max-w-60">
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-muted">
+        <div className="absolute inset-0 flex min-h-40 w-60 items-center justify-center rounded-lg bg-muted">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       )}
@@ -105,7 +114,7 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
         src={src ?? ""}
         alt={alt}
         className={cn(
-          "max-h-64 max-w-60 rounded-lg object-cover",
+          "max-h-80 max-w-60 rounded-lg",
           loading && "invisible",
         )}
         onLoad={() => setLoading(false)}
@@ -155,7 +164,8 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
               <video
                 src={message.media_url}
                 muted
-                className="max-h-64 max-w-60 rounded-lg object-cover"
+                preload="metadata"
+                className="max-h-80 max-w-60 rounded-lg"
               />
             </MediaLightbox>
           ) : (
