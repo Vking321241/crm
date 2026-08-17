@@ -2,10 +2,12 @@ import { and, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-or
 import type { Db } from "@/db/client";
 import {
   broadcasts,
+  contactTags,
   contacts,
   conversations,
   departments,
   messages,
+  tags,
   users,
 } from "@/db/schema";
 import {
@@ -598,4 +600,76 @@ export async function loadAdvancedAnalytics(
     departmentBreakdown,
     agentBreakdown,
   };
+}
+
+// --- Tag interaction report ("qual produto teve mais interação") ------
+
+export interface TagInteractionStat {
+  tagId: string;
+  tagName: string;
+  tagColor: string;
+  /** Distinct contacts carrying this tag that exchanged at least one
+   *  message (either direction) in the selected month. */
+  contactCount: number;
+}
+
+/**
+ * One row per non-system tag (see tags.is_system — excludes the
+ * auto-applied "Grupo" tag), counting distinct contacts that both
+ * (a) carry the tag and (b) had at least one message land in one of
+ * their conversations within [monthStart, monthEnd). Tags with zero
+ * interaction in the period are included at count 0 so the chart
+ * doesn't silently drop a product that just had a quiet month.
+ */
+export async function loadTagInteractionStats(
+  db: Db,
+  accountId: string,
+  monthStart: Date,
+  monthEnd: Date,
+): Promise<TagInteractionStat[]> {
+  const rows = await db
+    .select({
+      tagId: tags.id,
+      tagName: tags.name,
+      tagColor: tags.color,
+      contactCount: sql<number>`count(distinct ${contacts.id})::int`,
+    })
+    .from(tags)
+    .leftJoin(contactTags, eq(contactTags.tagId, tags.id))
+    .leftJoin(contacts, eq(contacts.id, contactTags.contactId))
+    .leftJoin(conversations, eq(conversations.contactId, contacts.id))
+    .leftJoin(
+      messages,
+      and(
+        eq(messages.conversationId, conversations.id),
+        gte(messages.createdAt, monthStart),
+        lt(messages.createdAt, monthEnd),
+      ),
+    )
+    .where(and(eq(tags.accountId, accountId), eq(tags.isSystem, false), isNotNull(messages.id)))
+    .groupBy(tags.id, tags.name, tags.color);
+
+  // Tags that exist but had zero matching messages never produce a
+  // row above (the inner-effect NOT NULL filter drops them) — add
+  // them back at 0 so a product with no interaction this month still
+  // shows up in the chart instead of vanishing.
+  const seen = new Set(rows.map((r) => r.tagId));
+  const zeroRows = await db
+    .select({ id: tags.id, name: tags.name, color: tags.color })
+    .from(tags)
+    .where(and(eq(tags.accountId, accountId), eq(tags.isSystem, false)));
+
+  const result: TagInteractionStat[] = rows.map((r) => ({
+    tagId: r.tagId,
+    tagName: r.tagName,
+    tagColor: r.tagColor,
+    contactCount: r.contactCount,
+  }));
+  for (const t of zeroRows) {
+    if (!seen.has(t.id)) {
+      result.push({ tagId: t.id, tagName: t.name, tagColor: t.color, contactCount: 0 });
+    }
+  }
+
+  return result.sort((a, b) => b.contactCount - a.contactCount);
 }

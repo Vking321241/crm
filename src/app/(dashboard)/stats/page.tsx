@@ -22,6 +22,7 @@ import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { BarChart } from "@/components/tremor/bar-chart"
 import { AdvancedAnalyticsSection } from "@/components/dashboard/advanced-analytics"
 import { TransferHistorySection } from "@/components/dashboard/transfer-history-section"
+import { TagInteractionReport } from "@/components/dashboard/tag-interaction-report"
 import { useAuth } from "@/hooks/use-auth"
 
 interface StatsPayload {
@@ -206,6 +207,8 @@ export default function StatsPage() {
 
       {/* Response time */}
       <ResponseTimeChart data={data?.responseTime ?? null} loading={loading} />
+
+      <TagInteractionReport />
 
       {/* Per-agent breakdown */}
       <section className="rounded-xl border border-border bg-card">
