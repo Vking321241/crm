@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { Eye, Radio } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -137,7 +138,7 @@ export default function SpyModePage() {
                 </p>
                 <div className="mt-3 flex items-center justify-between text-[10px] text-muted-foreground">
                   <span>
-                    Duração: {formatDistanceToNow(new Date(item.started_at))}
+                    Duração: {formatDistanceToNow(new Date(item.started_at), { locale: ptBR })}
                   </span>
                   <Eye className="size-3.5" />
                 </div>

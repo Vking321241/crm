@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, Loader2, UserPlus, CreditCard } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -176,12 +177,12 @@ export default function NotificationsPage() {
                         {n.title}
                       </span>
                       {isUnread && (
-                        <span aria-label="Unread" className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" />
+                        <span aria-label="Não lida" className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" />
                       )}
                     </div>
                     {n.body && <p className="mt-0.5 truncate text-xs text-muted-foreground">{n.body}</p>}
                     <p className="mt-1 text-[11px] text-muted-foreground/70">
-                      {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                      {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true, locale: ptBR })}
                     </p>
                   </div>
                 </button>

@@ -88,7 +88,7 @@ export function ContactDetailView({
     try {
       const res = await fetch(`/api/contacts/${contactId}`);
       if (!res.ok) {
-        toast.error(t('toastFailedLoad', { fallback: 'Failed to load contact' }));
+        toast.error(t('toastFailedLoad'));
         return;
       }
       const data = (await res.json()) as {
@@ -502,7 +502,7 @@ export function ContactDetailView({
                             </button>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1.5">
-                            {new Date(note.createdAt).toLocaleDateString('en-US', {
+                            {new Date(note.createdAt).toLocaleDateString('pt-BR', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',

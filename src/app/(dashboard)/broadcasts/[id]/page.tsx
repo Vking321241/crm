@@ -58,7 +58,7 @@ function StatCard({ label, value, total, icon, color }: StatCardProps) {
         </div>
         <span className="text-xs text-muted-foreground">{pct}%</span>
       </div>
-      <p className="mt-3 text-2xl font-bold text-foreground">{value.toLocaleString()}</p>
+      <p className="mt-3 text-2xl font-bold text-foreground">{value.toLocaleString('pt-BR')}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );
@@ -177,13 +177,13 @@ export default function BroadcastDetailPage() {
     try {
       const res = await fetch(`/api/broadcasts/${broadcastId}`, { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to delete');
+      if (!res.ok) throw new Error(data.error || 'Falha ao excluir');
       toast.success(t('toastDeleted'));
       router.push('/broadcasts');
     } catch (err) {
       toast.error(
         t('toastFailedDelete', {
-          error: err instanceof Error ? err.message : 'Unknown error',
+          error: err instanceof Error ? err.message : 'Erro desconhecido',
         }),
       );
     } finally {
@@ -196,11 +196,11 @@ export default function BroadcastDetailPage() {
     try {
       const res = await fetch(`/api/broadcasts/${broadcastId}/send`, { method: 'POST' });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to start send');
+      if (!res.ok) throw new Error(data.error || 'Falha ao iniciar o envio');
       toast.success(t('toastSendStarted'));
       await fetchData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to start send');
+      toast.error(err instanceof Error ? err.message : 'Falha ao iniciar o envio');
     } finally {
       setSending(false);
     }
@@ -252,7 +252,7 @@ export default function BroadcastDetailPage() {
             </div>
             <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
               <span>
-                {t('createdAt', { date: new Date(broadcast.createdAt).toLocaleDateString() })}
+                {t('createdAt', { date: new Date(broadcast.createdAt).toLocaleDateString('pt-BR') })}
               </span>
             </div>
           </div>
@@ -439,7 +439,7 @@ export default function BroadcastDetailPage() {
                   return (
                     <TableRow key={recipient.id} className="border-border">
                       <TableCell className="font-medium text-foreground">
-                        {recipient.contact?.name ?? 'Unknown'}
+                        {recipient.contact?.name ?? 'Desconhecido'}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {recipient.contact?.phone ?? '-'}
@@ -452,7 +452,7 @@ export default function BroadcastDetailPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {recipient.sentAt ? new Date(recipient.sentAt).toLocaleString() : '-'}
+                        {recipient.sentAt ? new Date(recipient.sentAt).toLocaleString('pt-BR') : '-'}
                       </TableCell>
                       <TableCell className="max-w-xs truncate text-xs text-red-400">
                         {recipient.errorMessage ?? '-'}

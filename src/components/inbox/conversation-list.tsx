@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus } from "@/types";
 import { Search, ChevronDown, X, UserCheck, AlertTriangle, Archive } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 import {
@@ -30,6 +31,12 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
   open: "bg-primary",
   pending: "bg-amber-500",
   closed: "bg-muted-foreground",
+};
+
+const STATUS_LABELS: Record<ConversationStatus, string> = {
+  open: "Aberta",
+  pending: "Pendente",
+  closed: "Fechada",
 };
 
 /** Poll cadence for the conversation list — no more Supabase Realtime. */
@@ -437,6 +444,7 @@ function ConversationItem({
   const timeAgo = conversation.last_message_at
     ? formatDistanceToNow(new Date(conversation.last_message_at), {
         addSuffix: false,
+        locale: ptBR,
       })
     : "";
 
@@ -493,7 +501,7 @@ function ConversationItem({
                 "h-2 w-2 rounded-full",
                 STATUS_COLORS[conversation.status]
               )}
-              title={conversation.status}
+              title={STATUS_LABELS[conversation.status]}
             />
           </div>
         </div>

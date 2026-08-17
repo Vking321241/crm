@@ -98,7 +98,7 @@ const EDITABLE_ROLES: { value: AccountRole }[] = [
 function fmtDate(iso: string): string {
   // Match the rest of the dashboard's locale-light formatting.
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString('pt-BR', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -128,14 +128,14 @@ export function MembersTab() {
       const mres = await fetch('/api/account/members', { cache: 'no-store' });
       if (!mres.ok) {
         const payload = await mres.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to load members');
+        toast.error(payload.error || 'Falha ao carregar membros');
         return;
       }
       const mdata = (await mres.json()) as { members: Member[] };
       setMembers(mdata.members);
     } catch (err) {
       console.error('[MembersTab] load error:', err);
-      toast.error('Could not reach the server');
+      toast.error('Não foi possível conectar ao servidor');
     } finally {
       setLoading(false);
     }
@@ -175,7 +175,7 @@ export function MembersTab() {
           ),
         );
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to update role');
+        toast.error(payload.error || 'Falha ao atualizar o cargo');
         return;
       }
       toast.success(t('updatedToast', { name: member.full_name || t('unnamed'), role: tRoles(nextRole) }));
@@ -187,7 +187,7 @@ export function MembersTab() {
         ),
       );
       console.error('[MembersTab] role change error:', err);
-      toast.error('Could not reach the server');
+      toast.error('Não foi possível conectar ao servidor');
     } finally {
       setPendingMemberAction(null);
     }
@@ -203,7 +203,7 @@ export function MembersTab() {
       );
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to remove member');
+        toast.error(payload.error || 'Falha ao remover membro');
         return;
       }
       toast.success(t('removedToast', { name: removingMember.full_name || t('unnamed') }));
@@ -213,7 +213,7 @@ export function MembersTab() {
       setRemovingMember(null);
     } catch (err) {
       console.error('[MembersTab] remove error:', err);
-      toast.error('Could not reach the server');
+      toast.error('Não foi possível conectar ao servidor');
     } finally {
       setPendingMemberAction(null);
     }
@@ -386,7 +386,7 @@ export function MembersTab() {
                             {member.avatar_url ? (
                               <AvatarImage
                                 src={member.avatar_url}
-                                alt={member.full_name || 'Member'}
+                                alt={member.full_name || 'Membro'}
                               />
                             ) : null}
                             <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">

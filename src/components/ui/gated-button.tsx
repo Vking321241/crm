@@ -33,7 +33,7 @@
 //
 //   <GatedButton
 //     canAct={canCreate}
-//     gateReason="create broadcasts"
+//     gateReason="criar disparos"
 //     onClick={() => router.push("/broadcasts/new")}
 //   >
 //     <Plus className="h-4 w-4" /> New Broadcast
@@ -41,8 +41,8 @@
 //
 // `canAct` defaults to true so unrelated usages still work.
 // When `canAct` is false, the button is `disabled` and the
-// wrapping span gets a `title` of `"Read-only — your role
-// can't ${gateReason}"`.
+// wrapping span gets a `title` of `"Somente leitura — seu
+// perfil não pode ${gateReason}"`.
 // ============================================================
 
 import type { ComponentProps, ReactNode } from "react";
@@ -76,7 +76,7 @@ export function GatedButton({
 }: GatedButtonProps) {
   const effectivelyDisabled = disabled || !canAct;
   const tooltip = !canAct && gateReason
-    ? `Read-only — your role can't ${gateReason}`
+    ? `Somente leitura — seu perfil não pode ${gateReason}`
     : title;
 
   return (

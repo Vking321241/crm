@@ -85,7 +85,7 @@ function ImportPreviewTags({
               color,
               border: `1px solid ${color}${isKnown ? '55' : '30'}`,
             }}
-            title={isKnown ? name : `${name} (tag not found — will be skipped)`}
+            title={isKnown ? name : `${name} (tag não encontrada — será ignorada)`}
           >
             <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
             <span className="truncate">{name}</span>

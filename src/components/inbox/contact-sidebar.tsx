@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { useTranslations } from "next-intl";
 import { ConversationTasks } from "./conversation-tasks";
 
@@ -227,7 +228,7 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
                     </p>
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       {note.author_name ?? tSidebar('unknownAuthor')} ·{' '}
-                      {format(new Date(note.created_at), "MMM d, yyyy HH:mm")}
+                      {format(new Date(note.created_at), "d MMM yyyy HH:mm", { locale: ptBR })}
                     </p>
                   </div>
                 ))}

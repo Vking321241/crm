@@ -353,7 +353,7 @@ export function MessageThread({
 
         if (!res.ok) {
           const reason = payload?.error || `HTTP ${res.status}`;
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(`Falha ao enviar: ${reason}`);
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           return;
         }
@@ -364,11 +364,11 @@ export function MessageThread({
           return sent ? [...withoutTemp, sent] : withoutTemp;
         });
         if (payload.error) {
-          toast.error(`Message saved but WhatsApp send failed: ${payload.error}`);
+          toast.error(`Mensagem salva, mas o envio pelo WhatsApp falhou: ${payload.error}`);
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : "network error";
-        toast.error(`Failed to send: ${reason}`);
+        toast.error(`Falha ao enviar: ${reason}`);
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
       }
     },
@@ -381,7 +381,7 @@ export function MessageThread({
 
       const contentText =
         payload.kind === "document"
-          ? payload.caption || payload.filename || "Document"
+          ? payload.caption || payload.filename || "Documento"
           : payload.caption;
 
       const tempId = `temp-${Date.now()}`;
@@ -416,7 +416,7 @@ export function MessageThread({
 
         if (!res.ok) {
           const reason = data?.error || `HTTP ${res.status}`;
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(`Falha ao enviar: ${reason}`);
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           void deleteAccountMedia(CHAT_MEDIA_BUCKET, payload.path).catch(() => {});
           return;
@@ -428,11 +428,11 @@ export function MessageThread({
           return sent ? [...withoutTemp, sent] : withoutTemp;
         });
         if (data.error) {
-          toast.error(`Message saved but WhatsApp send failed: ${data.error}`);
+          toast.error(`Mensagem salva, mas o envio pelo WhatsApp falhou: ${data.error}`);
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : "network error";
-        toast.error(`Failed to send: ${reason}`);
+        toast.error(`Falha ao enviar: ${reason}`);
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
         void deleteAccountMedia(CHAT_MEDIA_BUCKET, payload.path).catch(() => {});
       }
@@ -450,7 +450,7 @@ export function MessageThread({
         body: JSON.stringify({ status }),
       });
       if (!res.ok) {
-        toast.error("Failed to update status");
+        toast.error("Falha ao atualizar o status");
       }
     },
     [conversation],
@@ -537,12 +537,12 @@ export function MessageThread({
     return map;
   }, [messages]);
 
-  const contactDisplayName = contact?.name || contact?.phone || "Customer";
+  const contactDisplayName = contact?.name || contact?.phone || "Cliente";
 
   const authorLabelFor = useCallback(
     (m: Message): string => {
       const isAgentMsg = m.sender_type === "agent" || m.sender_type === "bot";
-      return isAgentMsg ? "You" : contactDisplayName;
+      return isAgentMsg ? "Você" : contactDisplayName;
     },
     [contactDisplayName],
   );
@@ -563,7 +563,7 @@ export function MessageThread({
     async (messageId: string, emoji: string) => {
       if (!user?.id || !conversation) return;
       if (messageId.startsWith("temp-")) {
-        toast.error("Wait for the message to finish sending");
+        toast.error("Aguarde a mensagem terminar de enviar");
         return;
       }
 
@@ -622,7 +622,7 @@ export function MessageThread({
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : "network error";
-        toast.error(`Reaction failed: ${reason}`);
+        toast.error(`Falha na reação: ${reason}`);
         setMessages(snapshot);
       }
     },
@@ -639,7 +639,7 @@ export function MessageThread({
         body: JSON.stringify({ assigned_agent_id: agentId }),
       });
       if (!res.ok) {
-        toast.error("Failed to update assignment");
+        toast.error("Falha ao atualizar a atribuição");
       }
     },
     [conversation],

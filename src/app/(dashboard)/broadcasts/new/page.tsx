@@ -38,7 +38,7 @@ export default function NewBroadcastPage() {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Failed to create broadcast');
+    if (!res.ok) throw new Error(data.error || 'Falha ao criar o disparo');
     return data.broadcast.id as string;
   }
 
@@ -49,7 +49,7 @@ export default function NewBroadcastPage() {
       toast.success(t('toastDraftSaved'));
       router.push(`/broadcasts/${id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save draft');
+      toast.error(err instanceof Error ? err.message : 'Falha ao salvar rascunho');
     } finally {
       setIsSavingDraft(false);
     }
@@ -61,11 +61,11 @@ export default function NewBroadcastPage() {
       const id = await createBroadcast();
       const sendRes = await fetch(`/api/broadcasts/${id}/send`, { method: 'POST' });
       const sendData = await sendRes.json().catch(() => ({}));
-      if (!sendRes.ok) throw new Error(sendData.error || 'Failed to start send');
+      if (!sendRes.ok) throw new Error(sendData.error || 'Falha ao iniciar o envio');
       toast.success(t('toastSendStarted'));
       router.push(`/broadcasts/${id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Broadcast failed');
+      toast.error(err instanceof Error ? err.message : 'Falha no disparo');
     } finally {
       setIsSending(false);
     }

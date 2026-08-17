@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import {
   ImageIcon,
@@ -392,7 +393,7 @@ export default function InternalChatPage() {
                           mine ? 'text-primary-foreground/70' : 'text-muted-foreground',
                         )}
                       >
-                        {formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(m.created_at), { addSuffix: true, locale: ptBR })}
                       </p>
                     </div>
                   </div>

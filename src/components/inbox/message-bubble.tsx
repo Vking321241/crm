@@ -124,7 +124,7 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
         <div>
           {message.media_url ? (
             <MediaLightbox kind="image" url={message.media_url} filename={message.content_text}>
-              <MediaImage url={message.media_url} alt="Shared image" />
+              <MediaImage url={message.media_url} alt="Imagem enviada" />
             </MediaLightbox>
           ) : (
             <MediaUnavailable label={t("photo")} t={t} />

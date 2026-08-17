@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { ArrowRightLeft, Loader2 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -108,7 +109,7 @@ export function TransferHistorySection() {
                         {t.to_agent?.name ?? t.to_department?.name ?? 'Fila'}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">
-                        {formatDistanceToNow(new Date(t.created_at), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(t.created_at), { addSuffix: true, locale: ptBR })}
                       </td>
                     </tr>
                   ))}

@@ -196,8 +196,8 @@ export async function PATCH(
           .where(eq(users.id, ctx.userId))
           .limit(1);
 
-        const contactLabel = contactRow?.name || contactRow?.phone || "a contact";
-        const actorName = actor?.fullName ?? "Someone";
+        const contactLabel = contactRow?.name || contactRow?.phone || "um contato";
+        const actorName = actor?.fullName ?? "Alguém";
 
         await ctx.db.insert(notifications).values({
           accountId: ctx.accountId,
@@ -206,8 +206,8 @@ export async function PATCH(
           conversationId: id,
           contactId: existing.contactId,
           actorUserId: ctx.userId,
-          title: "Conversation assigned to you",
-          body: `${actorName} assigned you the conversation with ${contactLabel}`,
+          title: "Conversa atribuída a você",
+          body: `${actorName} atribuiu a você a conversa com ${contactLabel}`,
         });
       } catch (err) {
         console.error("[PATCH /api/conversations/[id]] notification insert failed:", err);
