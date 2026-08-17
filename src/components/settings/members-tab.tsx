@@ -28,8 +28,10 @@ import {
   Loader2,
   Mail,
   MailX,
+  Pencil,
   Plus,
   Trash2,
+  UserPlus,
   UsersRound,
 } from 'lucide-react';
 
@@ -73,6 +75,7 @@ import {
   PresenceDot,
 } from '@/components/presence/presence-dot';
 import { InviteMemberDialog } from './invite-member-dialog';
+import { CreateAgentDialog } from './create-agent-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
 
@@ -127,7 +130,7 @@ function fmtExpiresIn(iso: string, t: (key: string, values?: Record<string, stri
 export function MembersTab() {
   const t = useTranslations('Settings.members');
   const tRoles = useTranslations('Settings.roles');
-  const { user, canManageMembers } = useAuth();
+  const { user, account, canManageMembers, refreshProfile } = useAuth();
   const { getPresence, getRow, now } = usePresence();
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -135,6 +138,10 @@ export function MembersTab() {
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [createAgentOpen, setCreateAgentOpen] = useState(false);
+  const [editingDomain, setEditingDomain] = useState(false);
+  const [domainInput, setDomainInput] = useState('');
+  const [savingDomain, setSavingDomain] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
@@ -254,6 +261,30 @@ export function MembersTab() {
     }
   }
 
+  async function handleSaveDomain() {
+    setSavingDomain(true);
+    try {
+      const res = await fetch('/api/account', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailDomain: domainInput.trim() || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || 'Falha ao salvar o domínio');
+        return;
+      }
+      toast.success('Domínio salvo.');
+      setEditingDomain(false);
+      await refreshProfile();
+    } catch (err) {
+      console.error('[MembersTab] domain save error:', err);
+      toast.error('Não foi possível conectar ao servidor.');
+    } finally {
+      setSavingDomain(false);
+    }
+  }
+
   async function handleRevoke(invite: Invitation) {
     try {
       const res = await fetch(`/api/account/invitations/${invite.id}`, {
@@ -287,13 +318,81 @@ export function MembersTab() {
         description={t('description')}
         action={
           <RequireRole min="admin">
-            <Button onClick={() => setInviteOpen(true)}>
-              <Plus className="size-4" />
-              {t('inviteMember')}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => setCreateAgentOpen(true)}>
+                <UserPlus className="size-4" />
+                Novo usuário
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setInviteOpen(true)}
+                title="Para promover alguém a administrador ou visualizador — usuários comuns, crie em 'Novo usuário'."
+              >
+                <Plus className="size-4" />
+                Convidar administrador
+              </Button>
+            </div>
           </RequireRole>
         }
       />
+
+      {/* Domínio de e-mail — usado para montar o login de novos
+          atendentes automaticamente (nome@dominio). Admin+ only. */}
+      <RequireRole min="admin">
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Domínio de e-mail da equipe</p>
+              {editingDomain ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    autoFocus
+                    value={domainInput}
+                    onChange={(e) => setDomainInput(e.target.value)}
+                    placeholder="cliente1.com"
+                    className="h-9 w-56 rounded-md border border-border bg-muted px-3 text-sm text-foreground placeholder:text-muted-foreground"
+                  />
+                  <Button size="sm" onClick={handleSaveDomain} disabled={savingDomain}>
+                    {savingDomain ? <Loader2 className="size-4 animate-spin" /> : 'Salvar'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setEditingDomain(false)}
+                    disabled={savingDomain}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {account?.email_domain ? (
+                    <>
+                      Novos atendentes recebem e-mails{' '}
+                      <span className="font-mono text-foreground">nome@{account.email_domain}</span>
+                    </>
+                  ) : (
+                    'Não configurado — defina antes de criar atendentes.'
+                  )}
+                </p>
+              )}
+            </div>
+            {!editingDomain && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setDomainInput(account?.email_domain ?? '');
+                  setEditingDomain(true);
+                }}
+              >
+                <Pencil className="size-4" />
+                {account?.email_domain ? 'Alterar' : 'Configurar'}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      </RequireRole>
 
       {/* Live presence summary across the roster. Updates without a
           full refresh as heartbeats and the local re-derive tick land. */}
@@ -559,6 +658,12 @@ export function MembersTab() {
           )}
         </div>
       </RequireRole>
+
+      <CreateAgentDialog
+        open={createAgentOpen}
+        onOpenChange={setCreateAgentOpen}
+        onCreated={loadEverything}
+      />
 
       <InviteMemberDialog
         open={inviteOpen}

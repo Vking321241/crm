@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       adminEmail?: string;
       adminName?: string;
       maxAgentSeats?: number;
+      emailDomain?: string;
     } | null;
 
     const clientName = body?.clientName?.trim();
@@ -49,6 +50,18 @@ export async function POST(request: Request) {
       typeof body?.maxAgentSeats === "number" && body.maxAgentSeats >= 1
         ? Math.floor(body.maxAgentSeats)
         : 1;
+    // Domain used later to auto-build atendente e-mails (name@domain).
+    // Optional at creation time — the client admin can also set it
+    // from Configurações → Membros.
+    const emailDomainRaw = body?.emailDomain?.trim().toLowerCase();
+    const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+    if (emailDomainRaw && !DOMAIN_RE.test(emailDomainRaw)) {
+      return NextResponse.json(
+        { error: "Domínio de e-mail inválido. Use apenas o domínio, ex: cliente1.com" },
+        { status: 400 },
+      );
+    }
+    const emailDomain = emailDomainRaw || null;
 
     if (!clientName || !adminEmail || !adminName) {
       return NextResponse.json(
@@ -64,7 +77,7 @@ export async function POST(request: Request) {
       newAccountId = await ctx.db.transaction(async (tx) => {
         const [account] = await tx
           .insert(accounts)
-          .values({ name: clientName, isPlatform: false, maxAgentSeats })
+          .values({ name: clientName, isPlatform: false, maxAgentSeats, emailDomain })
           .returning({ id: accounts.id });
 
         const [user] = await tx

@@ -2,7 +2,7 @@
 // /api/account
 //
 //   GET   — current caller's account + role. Any member.
-//   PATCH — rename the account.                  Admin+.
+//   PATCH — rename the account / default currency. Admin+.
 //
 // Why both verbs share a route file
 //   They speak about the same singular resource (the caller's
@@ -25,6 +25,7 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from "@/lib/rate-limit";
+import { CURRENCIES } from "@/lib/currency";
 
 export async function GET() {
   try {
@@ -55,27 +56,87 @@ export async function PATCH(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown }
+      | { name?: unknown; defaultCurrency?: unknown; emailDomain?: unknown }
       | null;
-    const rawName = body?.name;
 
-    if (typeof rawName !== "string") {
-      return NextResponse.json(
-        { error: "'name' must be a string" },
-        { status: 400 },
-      );
+    const updates: {
+      name?: string;
+      defaultCurrency?: string;
+      emailDomain?: string | null;
+      updatedAt: Date;
+    } = {
+      updatedAt: new Date(),
+    };
+
+    if (body?.name !== undefined) {
+      if (typeof body.name !== "string") {
+        return NextResponse.json(
+          { error: "'name' must be a string" },
+          { status: 400 },
+        );
+      }
+
+      const name = body.name.trim();
+      if (name.length === 0) {
+        return NextResponse.json(
+          { error: "Account name cannot be empty" },
+          { status: 400 },
+        );
+      }
+      if (name.length > MAX_NAME_LEN) {
+        return NextResponse.json(
+          { error: `Account name must be ${MAX_NAME_LEN} characters or fewer` },
+          { status: 400 },
+        );
+      }
+      updates.name = name;
     }
 
-    const name = rawName.trim();
-    if (name.length === 0) {
-      return NextResponse.json(
-        { error: "Account name cannot be empty" },
-        { status: 400 },
-      );
+    if (body?.defaultCurrency !== undefined) {
+      if (
+        typeof body.defaultCurrency !== "string" ||
+        !CURRENCIES.some((currency) => currency.code === body.defaultCurrency)
+      ) {
+        return NextResponse.json(
+          { error: "Invalid default currency" },
+          { status: 400 },
+        );
+      }
+      updates.defaultCurrency = body.defaultCurrency;
     }
-    if (name.length > MAX_NAME_LEN) {
+
+    if (body?.emailDomain !== undefined) {
+      if (body.emailDomain === null) {
+        updates.emailDomain = null;
+      } else if (typeof body.emailDomain === "string") {
+        // Bare hostname only — no scheme, no "@", no path. Lower-cased
+        // so "Cliente1.com" and "cliente1.com" build the same emails.
+        const domain = body.emailDomain.trim().toLowerCase();
+        if (domain === "") {
+          updates.emailDomain = null;
+        } else if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) {
+          return NextResponse.json(
+            { error: "Domínio inválido. Use apenas o domínio, ex: cliente1.com" },
+            { status: 400 },
+          );
+        } else {
+          updates.emailDomain = domain;
+        }
+      } else {
+        return NextResponse.json(
+          { error: "'emailDomain' must be a string or null" },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (
+      updates.name === undefined &&
+      updates.defaultCurrency === undefined &&
+      updates.emailDomain === undefined
+    ) {
       return NextResponse.json(
-        { error: `Account name must be ${MAX_NAME_LEN} characters or fewer` },
+        { error: "Nothing to update" },
         { status: 400 },
       );
     }
@@ -84,9 +145,14 @@ export async function PATCH(request: Request) {
     // account — the WHERE clause is the tenancy boundary (no RLS).
     const [data] = await ctx.db
       .update(accounts)
-      .set({ name, updatedAt: new Date() })
+      .set(updates)
       .where(eq(accounts.id, ctx.accountId))
-      .returning({ id: accounts.id, name: accounts.name });
+      .returning({
+        id: accounts.id,
+        name: accounts.name,
+        defaultCurrency: accounts.defaultCurrency,
+        emailDomain: accounts.emailDomain,
+      });
 
     if (!data) {
       return NextResponse.json(

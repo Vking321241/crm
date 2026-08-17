@@ -23,7 +23,14 @@ function makeSessionUser(overrides: Partial<SessionUser> = {}): SessionUser {
     createdAt: new Date("2026-01-01T00:00:00Z"),
     accountId: "acct-1",
     accountRole: "owner",
-    account: { id: "acct-1", name: "Acme", isPlatform: false, maxAgentSeats: 3 },
+    account: {
+      id: "acct-1",
+      name: "Acme",
+      isPlatform: false,
+      maxAgentSeats: 3,
+      defaultCurrency: "BRL",
+      emailDomain: null,
+    },
     ...overrides,
   };
 }
@@ -69,7 +76,14 @@ describe("requirePlatformOwner", () => {
   it("resolves for a member of the platform account", async () => {
     getSessionUser.mockResolvedValue(
       makeSessionUser({
-        account: { id: "platform-1", name: "DivaryTalk", isPlatform: true, maxAgentSeats: 1 },
+        account: {
+          id: "platform-1",
+          name: "DivaryTalk",
+          isPlatform: true,
+          maxAgentSeats: 1,
+          defaultCurrency: "BRL",
+          emailDomain: null,
+        },
         accountId: "platform-1",
       }),
     );

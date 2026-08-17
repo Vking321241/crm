@@ -97,7 +97,14 @@ export interface SessionUser {
   createdAt: Date;
   accountId: string;
   accountRole: "owner" | "admin" | "agent" | "viewer";
-  account: { id: string; name: string; isPlatform: boolean; maxAgentSeats: number };
+  account: {
+    id: string;
+    name: string;
+    isPlatform: boolean;
+    maxAgentSeats: number;
+    defaultCurrency: string;
+    emailDomain: string | null;
+  };
 }
 
 /**
@@ -127,6 +134,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       accountName: accounts.name,
       isPlatform: accounts.isPlatform,
       maxAgentSeats: accounts.maxAgentSeats,
+      defaultCurrency: accounts.defaultCurrency,
+      emailDomain: accounts.emailDomain,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
@@ -151,6 +160,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       name: row.accountName,
       isPlatform: row.isPlatform,
       maxAgentSeats: row.maxAgentSeats,
+      defaultCurrency: row.defaultCurrency,
+      emailDomain: row.emailDomain,
     },
   };
 }

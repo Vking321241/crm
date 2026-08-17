@@ -1465,11 +1465,13 @@
       "appearance": "Aparência",
       "whatsapp": "WhatsApp",
       "templates": "Modelos",
+      "quick-replies": "Mensagens prontas",
+      "auto-reply": "Mensagens automáticas",
       "fields": "Campos e etiquetas",
+      "departments": "Setores",
       "deals": "Negócios e moeda",
       "members": "Membros da equipe",
-      "permissions": "Permissões",
-      "api": "Chaves de API"
+      "permissions": "Permissões"
     },
     "groups": {
       "account": "Conta",

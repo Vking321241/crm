@@ -61,7 +61,6 @@ import {
   blankListPayload,
 } from "@/components/interactive/interactive-builder"
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
-import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
 // ------------------------------------------------------------
@@ -247,47 +246,35 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    const supabase = createClient()
 
-    // Tags, templates and custom fields come straight from the DB — RLS
-    // scopes them to the caller's account. Only APPROVED templates can
-    // actually be sent (anything else 400s at send time), matching the
-    // broadcast picker.
-    void (async () => {
-      const [tagsRes, templatesRes, customFieldsRes, pipelinesRes, stagesRes] =
-        await Promise.all([
-          supabase.from("tags").select("*").order("name"),
-          supabase
-            .from("message_templates")
-            .select("*")
-            .eq("status", "APPROVED")
-            .order("name"),
-          supabase.from("custom_fields").select("*").order("field_name"),
-          supabase.from("pipelines").select("id, name").order("name"),
-          supabase
-            .from("pipeline_stages")
-            .select("id, name, pipeline_id, position")
-            .order("position"),
-        ])
-      if (cancelled) return
-      setTags((tagsRes.data as TagRecord[] | null) ?? [])
-      setTemplates((templatesRes.data as MessageTemplate[] | null) ?? [])
-      setCustomFields((customFieldsRes.data as CustomField[] | null) ?? [])
-      setPipelines((pipelinesRes.data as PipelineOption[] | null) ?? [])
-      setStages((stagesRes.data as PipelineStageOption[] | null) ?? [])
-    })()
-
-    // Members go through the API so we inherit its email-visibility
-    // rules (agents/viewers don't see emails). Unreachable on older
-    // deployments → pickers fall back to a raw agent-id input.
     void (async () => {
       try {
-        const res = await fetch("/api/account/members", { cache: "no-store" })
-        if (!res.ok) return
-        const json = (await res.json()) as { members?: AccountMember[] }
-        if (!cancelled) setMembers(json.members ?? [])
+        const [resourcesRes, membersRes] = await Promise.all([
+          fetch("/api/automations/resources", { cache: "no-store" }),
+          fetch("/api/account/members", { cache: "no-store" }),
+        ])
+
+        if (!cancelled && resourcesRes.ok) {
+          const json = (await resourcesRes.json()) as {
+            tags?: TagRecord[]
+            templates?: MessageTemplate[]
+            customFields?: CustomField[]
+            pipelines?: PipelineOption[]
+            stages?: PipelineStageOption[]
+          }
+          setTags(json.tags ?? [])
+          setTemplates(json.templates ?? [])
+          setCustomFields(json.customFields ?? [])
+          setPipelines(json.pipelines ?? [])
+          setStages(json.stages ?? [])
+        }
+
+        if (!cancelled && membersRes.ok) {
+          const json = (await membersRes.json()) as { members?: AccountMember[] }
+          setMembers(json.members ?? [])
+        }
       } catch {
-        // Members endpoint absent — caller falls back to raw input.
+        // Resource endpoints absent/unreachable — pickers fall back to raw inputs.
       }
     })()
 

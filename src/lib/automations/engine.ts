@@ -1,3 +1,5 @@
+import { and, eq, gte, isNull, sql } from 'drizzle-orm'
+
 import type {
   Automation,
   AutomationLogStepResult,
@@ -17,10 +19,63 @@ import type {
   CreateDealStepConfig,
   AssignConversationStepConfig,
 } from '@/types'
-import { supabaseAdmin } from './admin-client'
-import { engineSendText, engineSendTemplate, engineSendInteractive } from './meta-send'
+import { db } from '@/db/client'
+import {
+  accounts,
+  automationLogs,
+  automationPendingExecutions,
+  automations,
+  automationSteps,
+  contactCustomValues,
+  contactTags,
+  contacts,
+  conversations,
+  customFields,
+  deals,
+  users,
+} from '@/db/schema'
+import { engineSendText, engineSendTemplate, engineSendInteractive } from './uazapi-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+
+// ------------------------------------------------------------
+// Row shape helpers
+// ------------------------------------------------------------
+//
+// `@/types`' Automation/AutomationStep interfaces keep the
+// snake_case shape the app used before the Postgres/Drizzle port
+// (Fatia 3, see src/db/schema.ts) — every other call site (the
+// automations CRUD routes, this file's own callers, the tests) still
+// reads `account_id` / `step_type` / etc. These column-alias selects
+// bridge Drizzle's camelCase schema onto that shape without having to
+// touch the shared type or every call site. Mirrors the pattern in
+// src/app/api/automations/route.ts.
+
+const AUTOMATION_COLUMNS = {
+  id: automations.id,
+  account_id: automations.accountId,
+  user_id: automations.userId,
+  name: automations.name,
+  description: automations.description,
+  trigger_type: automations.triggerType,
+  trigger_config: automations.triggerConfig,
+  is_active: automations.isActive,
+  execution_count: automations.executionCount,
+  last_executed_at: automations.lastExecutedAt,
+  created_at: automations.createdAt,
+  updated_at: automations.updatedAt,
+}
+
+const STEP_COLUMNS = {
+  id: automationSteps.id,
+  automation_id: automationSteps.automationId,
+  parent_step_id: automationSteps.parentStepId,
+  branch: automationSteps.branch,
+  step_type: automationSteps.stepType,
+  step_config: automationSteps.stepConfig,
+  position: automationSteps.position,
+  created_at: automationSteps.createdAt,
+}
 
 // ------------------------------------------------------------
 // Public API
@@ -63,46 +118,40 @@ export interface DispatchInput {
  */
 export async function runAutomationsForTrigger(input: DispatchInput): Promise<void> {
   try {
-    const db = supabaseAdmin()
-
     // Tenant isolation. `contactId` can be caller-supplied (the manual
     // POST /api/automations/engine entrypoint reads it straight from the
-    // request body), and every step below runs through the service-role
-    // client, which bypasses RLS. So before any step can touch the
-    // contact, verify it actually belongs to this account. A foreign or
-    // forged id is refused silently — callers are fire-and-forget, and a
-    // distinct error would leak whether a given contact UUID exists.
+    // request body), and every step below runs through the unscoped
+    // Drizzle client (no RLS backing this database — see src/db/schema.ts),
+    // so before any step can touch the contact, verify it actually belongs
+    // to this account. A foreign or forged id is refused silently —
+    // callers are fire-and-forget, and a distinct error would leak
+    // whether a given contact UUID exists.
     if (input.contactId) {
-      const { data: owned, error: ownErr } = await db
-        .from('contacts')
-        .select('id')
-        .eq('id', input.contactId)
-        .eq('account_id', input.accountId)
-        .maybeSingle()
-      if (ownErr) {
-        console.error('[automations] contact ownership check failed:', ownErr)
-        return
-      }
+      const [owned] = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(eq(contacts.id, input.contactId), eq(contacts.accountId, input.accountId)))
+        .limit(1)
       if (!owned) {
         console.warn('[automations] contact not in account, refusing dispatch', input.contactId)
         return
       }
     }
 
-    const { data: automations, error } = await db
-      .from('automations')
-      .select('*')
-      .eq('account_id', input.accountId)
-      .eq('trigger_type', input.triggerType)
-      .eq('is_active', true)
+    const rows = await db
+      .select(AUTOMATION_COLUMNS)
+      .from(automations)
+      .where(
+        and(
+          eq(automations.accountId, input.accountId),
+          eq(automations.triggerType, input.triggerType),
+          eq(automations.isActive, true),
+        ),
+      )
+    const matched = rows as unknown as Automation[]
+    if (matched.length === 0) return
 
-    if (error) {
-      console.error('[automations] fetch failed:', error)
-      return
-    }
-    if (!automations || automations.length === 0) return
-
-    for (const automation of automations as Automation[]) {
+    for (const automation of matched) {
       if (!triggerMatches(automation, input.context)) continue
       try {
         await executeAutomation(automation, input)
@@ -135,22 +184,22 @@ export async function resumePendingExecution(pending: {
   next_step_position: number
   context: AutomationContext
 }): Promise<void> {
-  const db = supabaseAdmin()
-  const { data: automation, error } = await db
-    .from('automations')
-    .select('*')
-    .eq('id', pending.automation_id)
-    .single()
+  const [row] = await db
+    .select(AUTOMATION_COLUMNS)
+    .from(automations)
+    .where(eq(automations.id, pending.automation_id))
+    .limit(1)
 
-  if (error || !automation) {
-    console.error('[automations] resume: missing automation', pending.automation_id, error)
+  if (!row) {
+    console.error('[automations] resume: missing automation', pending.automation_id)
     await markPending(pending.id, 'failed')
     return
   }
+  const automation = row as unknown as Automation
 
   try {
     await executeStepsFrom({
-      automation: automation as Automation,
+      automation,
       contactId: pending.contact_id,
       context: pending.context ?? {},
       parentStepId: pending.parent_step_id,
@@ -171,28 +220,25 @@ export async function resumePendingExecution(pending: {
 // ------------------------------------------------------------
 
 async function executeAutomation(automation: Automation, input: DispatchInput) {
-  const db = supabaseAdmin()
-
-  const { data: log, error: logErr } = await db
-    .from('automation_logs')
-    .insert({
-      automation_id: automation.id,
+  const [log] = await db
+    .insert(automationLogs)
+    .values({
+      automationId: automation.id,
       // Tenancy: matches automation.account_id (NOT NULL post-017).
-      account_id: automation.account_id,
+      accountId: automation.account_id,
       // Audit: keeps the historical "author of this automation"
       // pointer so logs still attribute to the right user even
       // after teammates join the account.
-      user_id: automation.user_id,
-      contact_id: input.contactId ?? null,
-      trigger_event: input.triggerType,
-      steps_executed: [],
+      userId: automation.user_id,
+      contactId: input.contactId ?? null,
+      triggerEvent: input.triggerType,
+      stepsExecuted: [],
       status: 'success',
     })
-    .select()
-    .single()
+    .returning({ id: automationLogs.id })
 
-  if (logErr || !log) {
-    console.error('[automations] cannot create log:', logErr)
+  if (!log) {
+    console.error('[automations] cannot create log for automation', automation.id)
     return
   }
 
@@ -207,16 +253,14 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
     triggerEvent: input.triggerType,
   })
 
-  // Atomic counter update via the SQL function from migration 007.
-  // Doing this with a client-side read-modify-write raced when the
-  // same automation fired for two contacts simultaneously — both
-  // would read N and both write N+1, losing one count permanently.
-  const { error: rpcErr } = await db.rpc('increment_automation_execution_count', {
-    p_automation_id: automation.id,
-  })
-  if (rpcErr) {
-    console.error('[automations] increment counter failed:', rpcErr)
-  }
+  // Atomic increment — a client-side read-modify-write would race when
+  // the same automation fires for two contacts simultaneously (both
+  // read N, both write N+1, one increment lost). `sql` pushes the +1
+  // into the UPDATE itself.
+  await db
+    .update(automations)
+    .set({ executionCount: sql`${automations.executionCount} + 1`, updatedAt: new Date() })
+    .where(eq(automations.id, automation.id))
 }
 
 interface ExecuteArgs {
@@ -231,27 +275,28 @@ interface ExecuteArgs {
 }
 
 async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
-  const db = supabaseAdmin()
-
-  const baseQuery = db
-    .from('automation_steps')
-    .select('*')
-    .eq('automation_id', args.automation.id)
-    .gte('position', args.startPosition)
-    .order('position', { ascending: true })
-
-  const scoped =
+  const scope =
     args.parentStepId === null
-      ? baseQuery.is('parent_step_id', null)
-      : baseQuery.eq('parent_step_id', args.parentStepId).eq('branch', args.branch ?? 'yes')
+      ? isNull(automationSteps.parentStepId)
+      : and(
+          eq(automationSteps.parentStepId, args.parentStepId),
+          eq(automationSteps.branch, args.branch ?? 'yes'),
+        )
 
-  const { data: steps, error: stepsErr } = await scoped
+  const rows = await db
+    .select(STEP_COLUMNS)
+    .from(automationSteps)
+    .where(
+      and(
+        eq(automationSteps.automationId, args.automation.id),
+        gte(automationSteps.position, args.startPosition),
+        scope,
+      ),
+    )
+    .orderBy(automationSteps.position)
+  const steps = rows as unknown as AutomationStep[]
 
-  if (stepsErr) {
-    await finalizeLog(args.logId, 'failed', stepsErr.message)
-    return
-  }
-  if (!steps || steps.length === 0) {
+  if (steps.length === 0) {
     if (args.parentStepId === null && args.logId) {
       await finalizeLog(args.logId, 'success', null)
     }
@@ -262,24 +307,24 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
   let status: 'success' | 'partial' | 'failed' = 'success'
   let errorMessage: string | null = null
 
-  for (const step of steps as AutomationStep[]) {
+  for (const step of steps) {
     // `wait` is the suspension point: enqueue and stop processing this
     // scope. The cron endpoint will pick it up later.
     if (step.step_type === 'wait') {
       const cfg = step.step_config as WaitStepConfig
       const ms = waitMs(cfg)
-      await db.from('automation_pending_executions').insert({
-        automation_id: args.automation.id,
+      await db.insert(automationPendingExecutions).values({
+        automationId: args.automation.id,
         // Tenancy: account_id required NOT NULL post-017.
-        account_id: args.automation.account_id,
-        user_id: args.automation.user_id,
-        contact_id: args.contactId,
-        log_id: args.logId,
-        parent_step_id: args.parentStepId,
+        accountId: args.automation.account_id,
+        userId: args.automation.user_id,
+        contactId: args.contactId,
+        logId: args.logId,
+        parentStepId: args.parentStepId,
         branch: args.branch,
-        next_step_position: step.position + 1,
+        nextStepPosition: step.position + 1,
         context: args.context,
-        run_at: new Date(Date.now() + ms).toISOString(),
+        runAt: new Date(Date.now() + ms),
         status: 'pending',
       })
       results.push({
@@ -345,8 +390,6 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
 }
 
 async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string> {
-  const db = supabaseAdmin()
-
   switch (step.step_type) {
     case 'send_message': {
       const cfg = step.step_config as SendMessageStepConfig
@@ -361,16 +404,17 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         text,
       })
-      return `sent via Meta (${whatsapp_message_id})`
+      return `sent via UAZAPI (${whatsapp_message_id})`
     }
 
     case 'send_buttons':
     case 'send_list': {
       const payload = step.step_config as SendButtonsStepConfig | SendListStepConfig
       if (!args.contactId) throw new Error(`${step.step_type} needs a contact`)
-      // Validate against Meta's limits before the network call so a bad
-      // payload surfaces as a clear failed-step detail rather than a raw
-      // Meta 400 mid-conversation.
+      // Structural validation only (limits inherited from the old Meta
+      // shape this payload was designed for) — UAZAPI has no native
+      // interactive message, so the payload renders down to numbered
+      // plain text at send time (see interactivePayloadToText).
       const check = validateInteractivePayload(payload)
       if (!check.ok) throw new Error(check.error)
       const conversationId = await resolveConversationId(args)
@@ -381,7 +425,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         payload,
       })
-      return `interactive sent via Meta (${whatsapp_message_id})`
+      return `interactive sent via UAZAPI (${whatsapp_message_id})`
     }
 
     case 'send_template': {
@@ -389,10 +433,11 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('send_template needs a contact')
       if (!cfg.template_name) throw new Error('send_template needs template_name')
       const conversationId = await resolveConversationId(args)
-      // Meta templates use positional {{1}}, {{2}}, … placeholders, so
-      // we MUST emit params in strict numeric order. Lexicographic sort
-      // of "1", "2", …, "10" yields "1", "10", "2", … which silently
-      // scrambles every template with ≥10 variables.
+      // Meta templates used positional {{1}}, {{2}}, … placeholders, so
+      // params must stay in strict numeric order. Lexicographic sort of
+      // "1", "10", "2", … would silently scramble any template with ≥10
+      // variables — kept even though UAZAPI has no template concept,
+      // since engineSendTemplate still renders params in this order.
       const params = cfg.variables
         ? Object.keys(cfg.variables)
             .sort((a, b) => {
@@ -416,7 +461,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         language: cfg.language,
         params,
       })
-      return `template sent via Meta (${whatsapp_message_id})`
+      return `template sent via UAZAPI (${whatsapp_message_id})`
     }
 
     case 'add_tag': {
@@ -426,11 +471,9 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       const cfg = step.step_config as TagStepConfig
       if (!args.contactId || !cfg.tag_id) throw new Error('add_tag needs contact + tag_id')
       await db
-        .from('contact_tags')
-        .upsert(
-          { contact_id: args.contactId, tag_id: cfg.tag_id },
-          { onConflict: 'contact_id,tag_id', ignoreDuplicates: true },
-        )
+        .insert(contactTags)
+        .values({ contactId: args.contactId, tagId: cfg.tag_id })
+        .onConflictDoNothing({ target: [contactTags.contactId, contactTags.tagId] })
       return `tag ${cfg.tag_id} added`
     }
 
@@ -440,10 +483,8 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       const cfg = step.step_config as TagStepConfig
       if (!args.contactId || !cfg.tag_id) throw new Error('remove_tag needs contact + tag_id')
       await db
-        .from('contact_tags')
-        .delete()
-        .eq('contact_id', args.contactId)
-        .eq('tag_id', cfg.tag_id)
+        .delete(contactTags)
+        .where(and(eq(contactTags.contactId, args.contactId), eq(contactTags.tagId, cfg.tag_id)))
       return `tag ${cfg.tag_id} removed`
     }
 
@@ -455,19 +496,23 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         // Pick any member of the account. The existing implementation
         // only ever returned the automation's author; preserving that
         // shape until a real round-robin algorithm replaces it.
-        const { data: profiles } = await db
-          .from('profiles')
-          .select('user_id')
-          .eq('account_id', args.automation.account_id)
+        const [member] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.accountId, args.automation.account_id))
           .limit(1)
-        agentId = profiles?.[0]?.user_id
+        agentId = member?.id
       }
       if (!agentId) return 'no agent resolved'
       await db
-        .from('conversations')
-        .update({ assigned_agent_id: agentId })
-        .eq('account_id', args.automation.account_id)
-        .eq('contact_id', args.contactId)
+        .update(conversations)
+        .set({ assignedAgentId: agentId, updatedAt: new Date() })
+        .where(
+          and(
+            eq(conversations.accountId, args.automation.account_id),
+            eq(conversations.contactId, args.contactId),
+          ),
+        )
       return `assigned to ${agentId}`
     }
 
@@ -485,14 +530,16 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         if (!customFieldId) {
           return `field ${cfg.field} not writable from automations`
         }
-        // Defense in depth: the service-role client bypasses RLS, so confirm
-        // the field definition belongs to this account before writing.
-        const { data: field } = await db
-          .from('custom_fields')
-          .select('id')
-          .eq('id', customFieldId)
-          .eq('account_id', args.automation.account_id)
-          .maybeSingle()
+        // Defense in depth: this runs through the unscoped Drizzle client
+        // (no RLS), so confirm the field definition belongs to this
+        // account before writing.
+        const [field] = await db
+          .select({ id: customFields.id })
+          .from(customFields)
+          .where(
+            and(eq(customFields.id, customFieldId), eq(customFields.accountId, args.automation.account_id)),
+          )
+          .limit(1)
         if (!field) {
           return `field ${cfg.field} not writable from automations`
         }
@@ -500,26 +547,30 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         // runs overwrite rather than duplicate. Tenancy is enforced above and,
         // for the contact side, by the entry-point ownership guard.
         await db
-          .from('contact_custom_values')
-          .upsert(
-            { contact_id: args.contactId, custom_field_id: customFieldId, value },
-            { onConflict: 'contact_id,custom_field_id' },
-          )
+          .insert(contactCustomValues)
+          .values({ contactId: args.contactId, customFieldId, value })
+          .onConflictDoUpdate({
+            target: [contactCustomValues.contactId, contactCustomValues.customFieldId],
+            set: { value },
+          })
         return `custom field updated`
       }
 
-      const allowed = new Set(['name', 'email', 'company'])
-      if (!allowed.has(cfg.field)) {
+      const ALLOWED_FIELDS = {
+        name: contacts.name,
+        email: contacts.email,
+        company: contacts.company,
+      } as const
+      if (!(cfg.field in ALLOWED_FIELDS)) {
         return `field ${cfg.field} not writable from automations`
       }
-      // Defense in depth: scope the service-role write to the account so
-      // a future caller that skips the entry-point ownership guard still
-      // cannot write across tenants.
+      // Defense in depth: scope the write to the account so a future
+      // caller that skips the entry-point ownership guard still cannot
+      // write across tenants.
       await db
-        .from('contacts')
-        .update({ [cfg.field]: value, updated_at: new Date().toISOString() })
-        .eq('id', args.contactId)
-        .eq('account_id', args.automation.account_id)
+        .update(contacts)
+        .set({ [cfg.field]: value, updatedAt: new Date() })
+        .where(and(eq(contacts.id, args.contactId), eq(contacts.accountId, args.automation.account_id)))
       return `${cfg.field} updated`
     }
 
@@ -529,24 +580,24 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // Match the account's configured default currency rather than
       // the static `deals.currency` DB default — keeps automation-
       // created deals consistent with the one-currency-per-account
-      // rule (issue #218). Fall back to USD if the row is somehow
-      // missing the value (pre-021 forks).
-      const { data: acct } = await db
-        .from('accounts')
-        .select('default_currency')
-        .eq('id', args.automation.account_id)
-        .maybeSingle()
-      await db.from('deals').insert({
+      // rule (issue #218). Fall back to BRL (schema default) if the
+      // row is somehow missing the value.
+      const [acct] = await db
+        .select({ defaultCurrency: accounts.defaultCurrency })
+        .from(accounts)
+        .where(eq(accounts.id, args.automation.account_id))
+        .limit(1)
+      await db.insert(deals).values({
         // Tenancy + audit, same split as automation_logs above.
-        account_id: args.automation.account_id,
-        user_id: args.automation.user_id,
-        pipeline_id: cfg.pipeline_id,
-        stage_id: cfg.stage_id,
-        contact_id: args.contactId,
+        accountId: args.automation.account_id,
+        userId: args.automation.user_id,
+        pipelineId: cfg.pipeline_id,
+        stageId: cfg.stage_id,
+        contactId: args.contactId,
         title: interpolate(cfg.title, args),
-        value: cfg.value ?? 0,
-        currency: acct?.default_currency ?? 'USD',
-        status: 'open',
+        value: String(cfg.value ?? 0),
+        currency: acct?.defaultCurrency ?? 'BRL',
+        status: 'active',
       })
       return 'deal created'
     }
@@ -556,8 +607,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!cfg.url) throw new Error('send_webhook needs url')
       // SSRF guard: the URL and headers are account-controlled and the
       // server makes the request, so refuse any destination that resolves
-      // to a private / loopback / link-local / reserved address. Mirrors
-      // the webhook_endpoints delivery path (see lib/webhooks/deliver.ts).
+      // to a private / loopback / link-local / reserved address.
       if (!(await isDeliverableUrl(cfg.url))) {
         throw new Error('send_webhook: destination not allowed')
       }
@@ -579,10 +629,14 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
     case 'close_conversation': {
       if (!args.contactId) throw new Error('close_conversation needs a contact')
       await db
-        .from('conversations')
-        .update({ status: 'closed', updated_at: new Date().toISOString() })
-        .eq('account_id', args.automation.account_id)
-        .eq('contact_id', args.contactId)
+        .update(conversations)
+        .set({ status: 'closed', updatedAt: new Date() })
+        .where(
+          and(
+            eq(conversations.accountId, args.automation.account_id),
+            eq(conversations.contactId, args.contactId),
+          ),
+        )
       return 'conversation closed'
     }
 
@@ -606,15 +660,18 @@ async function resolveConversationId(args: ExecuteArgs): Promise<string> {
   const fromCtx = args.context.conversation_id
   if (fromCtx) return fromCtx
   if (!args.contactId) throw new Error('cannot resolve conversation: no contact')
-  const { data, error } = await supabaseAdmin()
-    .from('conversations')
-    .select('id')
-    .eq('account_id', args.automation.account_id)
-    .eq('contact_id', args.contactId)
-    .maybeSingle()
-  if (error) throw new Error(`conversation lookup failed: ${error.message}`)
-  if (!data?.id) throw new Error('no conversation for contact')
-  return data.id as string
+  const [row] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.accountId, args.automation.account_id),
+        eq(conversations.contactId, args.contactId),
+      ),
+    )
+    .limit(1)
+  if (!row) throw new Error('no conversation for contact')
+  return row.id
 }
 
 export function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {
@@ -645,32 +702,42 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
   return true
 }
 
+// Columns a `contact_field` condition is allowed to compare against.
+// Kept as an explicit whitelist (rather than accepting any string as a
+// column name) since `cfg.operand` is account-controlled automation
+// config, and Drizzle needs a column object per field anyway.
+const CONDITION_CONTACT_FIELDS = {
+  name: contacts.name,
+  email: contacts.email,
+  company: contacts.company,
+  phone: contacts.phone,
+} as const
+
 async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
-  const db = supabaseAdmin()
   switch (cfg.subject) {
     case 'tag_presence': {
       if (!args.contactId || !cfg.operand) return false
-      // contact_tags has no account_id column (its RLS keys off the parent
-      // contact), so tenant scoping here relies on the contact-ownership
-      // guard in runAutomationsForTrigger.
-      const { count } = await db
-        .from('contact_tags')
-        .select('id', { count: 'exact', head: true })
-        .eq('contact_id', args.contactId)
-        .eq('tag_id', cfg.operand)
-      return (count ?? 0) > 0
+      // contact_tags has no account_id column (tenant scoping here relies
+      // on the contact-ownership guard in runAutomationsForTrigger).
+      const rows = await db
+        .select({ id: contactTags.id })
+        .from(contactTags)
+        .where(and(eq(contactTags.contactId, args.contactId), eq(contactTags.tagId, cfg.operand)))
+        .limit(1)
+      return rows.length > 0
     }
     case 'contact_field': {
       if (!args.contactId || !cfg.operand) return false
+      const column = CONDITION_CONTACT_FIELDS[cfg.operand as keyof typeof CONDITION_CONTACT_FIELDS]
+      if (!column) return false
       // Scope to the account so the condition can't be turned into a
-      // cross-tenant read oracle via the service-role client.
-      const { data } = await db
-        .from('contacts')
-        .select(cfg.operand)
-        .eq('id', args.contactId)
-        .eq('account_id', args.automation.account_id)
-        .maybeSingle()
-      const v = (data as Record<string, unknown> | null)?.[cfg.operand]
+      // cross-tenant read oracle via the unscoped Drizzle client.
+      const [row] = await db
+        .select({ value: column })
+        .from(contacts)
+        .where(and(eq(contacts.id, args.contactId), eq(contacts.accountId, args.automation.account_id)))
+        .limit(1)
+      const v = row?.value
       return v != null && String(v) === String(cfg.value ?? '')
     }
     case 'message_content': {
@@ -718,23 +785,22 @@ async function appendResults(
   errorMessage: string | null,
 ) {
   if (!logId) return
-  const db = supabaseAdmin()
-  const { data: existing } = await db
-    .from('automation_logs')
-    .select('steps_executed, status')
-    .eq('id', logId)
-    .single()
+  const [existing] = await db
+    .select({ stepsExecuted: automationLogs.stepsExecuted })
+    .from(automationLogs)
+    .where(eq(automationLogs.id, logId))
+    .limit(1)
   const merged = [
-    ...((existing?.steps_executed as AutomationLogStepResult[] | undefined) ?? []),
+    ...((existing?.stepsExecuted as AutomationLogStepResult[] | undefined) ?? []),
     ...newItems,
   ]
-  const update: Record<string, unknown> = { steps_executed: merged }
+  const update: Partial<typeof automationLogs.$inferInsert> = { stepsExecuted: merged }
   // Only overwrite status on the outermost scope — nested branches pass null.
   if (status !== null) {
     update.status = status
   }
-  if (errorMessage) update.error_message = errorMessage
-  await db.from('automation_logs').update(update).eq('id', logId)
+  if (errorMessage) update.errorMessage = errorMessage
+  await db.update(automationLogs).set(update).where(eq(automationLogs.id, logId))
 }
 
 async function finalizeLog(
@@ -743,15 +809,12 @@ async function finalizeLog(
   errorMessage: string | null,
 ) {
   if (!logId) return
-  await supabaseAdmin()
-    .from('automation_logs')
-    .update({ status, error_message: errorMessage })
-    .eq('id', logId)
+  await db
+    .update(automationLogs)
+    .set({ status, errorMessage })
+    .where(eq(automationLogs.id, logId))
 }
 
 async function markPending(id: string, status: 'done' | 'failed') {
-  await supabaseAdmin()
-    .from('automation_pending_executions')
-    .update({ status })
-    .eq('id', id)
+  await db.update(automationPendingExecutions).set({ status }).where(eq(automationPendingExecutions.id, id))
 }

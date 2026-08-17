@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Coins, Loader2 } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { CURRENCIES } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
@@ -22,14 +21,12 @@ import { SettingsPanelHead } from "./settings-panel-head";
 /**
  * Deals settings — account-wide default currency.
  *
- * One currency per account (issue #218): the chosen code seeds new
- * deals and formats every aggregated total. Existing deals keep their
- * own saved currency. Writes go straight to `accounts.default_currency`;
- * the `accounts_update` RLS policy (017) already restricts that to
- * admins+, so non-admins see a disabled, read-only control.
+ * One currency per account: the chosen code seeds new deals and formats
+ * every aggregated total. Existing deals keep their own saved currency.
+ * Writes go through /api/account so the server enforces accountId + role
+ * with the custom Postgres session layer (no Supabase/RLS).
  */
 export function DealsSettings() {
-  const supabase = createClient();
   const {
     accountId,
     defaultCurrency,
@@ -53,20 +50,23 @@ export function DealsSettings() {
   async function handleSave() {
     if (!accountId || !dirty) return;
     setSaving(true);
-    const { error } = await supabase
-      .from("accounts")
-      .update({ default_currency: selected })
-      .eq("id", accountId);
-    if (error) {
-      toast.error(t("saveFailed"));
+    try {
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultCurrency: selected }),
+      });
+      if (!res.ok) {
+        toast.error(t("saveFailed"));
+        return;
+      }
+      // Pull the new value back into the auth context so the deal form
+      // and every total pick it up without a full reload.
+      await refreshProfile();
+      toast.success(t("saveSuccess"));
+    } finally {
       setSaving(false);
-      return;
     }
-    // Pull the new value back into the auth context so the deal form
-    // and every total pick it up without a full reload.
-    await refreshProfile();
-    setSaving(false);
-    toast.success(t("saveSuccess"));
   }
 
   return (

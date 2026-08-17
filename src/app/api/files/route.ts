@@ -14,7 +14,10 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit
 // relative folder so `npm run dev` doesn't need the volume set up).
 const STORAGE_ROOT = process.env.STORAGE_ROOT || path.join(process.cwd(), ".local-storage");
 
-export const MEDIA_MAX_BYTES = 16 * 1024 * 1024;
+// Not exported — App Router route files may only export recognized
+// names (HTTP methods, `config`, `dynamic`, …); anything else fails
+// Next's route-shape validation at build time.
+const MEDIA_MAX_BYTES = 16 * 1024 * 1024;
 
 // POST /api/files — multipart upload (field "file", optional "kind":
 // 'avatar' | 'media'). Replaces Supabase Storage's public buckets

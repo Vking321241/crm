@@ -237,3 +237,42 @@ export function interactivePayloadPreviewText(
   if (body) return body
   return payload.kind === 'buttons' ? '[buttons]' : '[list]'
 }
+
+/**
+ * Renders an interactive payload as plain text — UAZAPI (the product's
+ * only WhatsApp transport, see uazapi-client.ts) has no native
+ * reply-buttons/list message type, unlike the Meta Cloud API this
+ * payload shape was originally designed for. Options are numbered so
+ * the customer can reply with a digit; the `id` each option maps to
+ * is NOT sent (it only exists for the interactive_reply automation
+ * trigger, which has no equivalent over plain text).
+ */
+export function interactivePayloadToText(
+  payload: InteractiveMessagePayload,
+): string {
+  const lines: string[] = []
+  if (payload.header) lines.push(payload.header)
+  lines.push(payload.body)
+
+  if (payload.kind === 'buttons') {
+    lines.push('')
+    payload.buttons.forEach((b, i) => lines.push(`${i + 1}. ${b.title}`))
+  } else {
+    let n = 0
+    for (const section of payload.sections) {
+      lines.push('')
+      if (section.title) lines.push(`*${section.title}*`)
+      for (const row of section.rows) {
+        n += 1
+        lines.push(row.description ? `${n}. ${row.title} — ${row.description}` : `${n}. ${row.title}`)
+      }
+    }
+  }
+
+  if (payload.footer) {
+    lines.push('')
+    lines.push(payload.footer)
+  }
+
+  return lines.join('\n')
+}

@@ -33,6 +33,7 @@ export function CreateClientDialog() {
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [maxAgentSeats, setMaxAgentSeats] = useState(3);
+  const [emailDomain, setEmailDomain] = useState("");
   const [result, setResult] = useState<CreateClientResponse | null>(null);
 
   const reset = () => {
@@ -40,6 +41,7 @@ export function CreateClientDialog() {
     setAdminName("");
     setAdminEmail("");
     setMaxAgentSeats(3);
+    setEmailDomain("");
     setResult(null);
   };
 
@@ -50,7 +52,13 @@ export function CreateClientDialog() {
       const res = await fetch("/api/admin/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientName, adminName, adminEmail, maxAgentSeats }),
+        body: JSON.stringify({
+          clientName,
+          adminName,
+          adminEmail,
+          maxAgentSeats,
+          emailDomain: emailDomain.trim() || undefined,
+        }),
       });
       const data = (await res.json()) as CreateClientResponse;
       if (!res.ok) {
@@ -169,6 +177,20 @@ export function CreateClientDialog() {
                 onChange={(e) => setMaxAgentSeats(Number(e.target.value))}
                 required
               />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="emailDomain">Domínio para e-mail dos atendentes</Label>
+              <Input
+                id="emailDomain"
+                placeholder="cliente1.com"
+                value={emailDomain}
+                onChange={(e) => setEmailDomain(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                O admin do cliente vai criar atendentes digitando só o nome — o e-mail de
+                login é montado automaticamente como nome@{emailDomain || "dominio.com"}. Pode
+                deixar em branco e configurar depois em Configurações → Membros.
+              </p>
             </div>
 
             <DialogFooter>

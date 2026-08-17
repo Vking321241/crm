@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Shared mock state for the service-role client. Lives in a hoisted block
+// Shared mock state for the Drizzle client. Lives in a hoisted block
 // so the vi.mock factory below can close over it.
 const h = vi.hoisted(() => ({
   state: {
@@ -9,88 +9,124 @@ const h = vi.hoisted(() => ({
     automations: [] as Record<string, unknown>[],
     steps: [] as Record<string, unknown>[],
     fromCalls: [] as string[],
-    updateCalls: [] as { table: string; filters: [string, string, unknown][] }[],
-    upsertCalls: [] as { table: string; payload: unknown }[],
+    updateCalls: [] as { table: string; values: unknown }[],
+    upsertCalls: [] as { table: string; values: unknown }[],
   },
 }));
 
-vi.mock("./admin-client", () => {
+// Mocks `@/db/client`'s `db` export with a minimal fluent stand-in for
+// Drizzle's query builder. Table identity is resolved by comparing the
+// object passed to `.from()`/`.insert()`/`.update()`/`.delete()`
+// against the real (unmocked) schema exports, so this stays agnostic
+// to the actual `.where()` conditions engine.ts builds — same as the
+// old Supabase-shaped mock, which also resolved data purely from
+// (table, operation) rather than re-parsing filters.
+vi.mock("@/db/client", async () => {
+  const schema = await import("@/db/schema");
   const { state } = h;
 
-  function resolve(ops: {
-    table: string;
-    type: string;
-    payload?: unknown;
-    filters: [string, string, unknown][];
-  }) {
-    const { table, type } = ops;
-    if (table === "contacts") {
-      if (type === "update") {
-        state.updateCalls.push({ table, filters: ops.filters });
-        return { data: null, error: null };
-      }
-      // ownership guard / condition read
-      return { data: state.owned, error: null };
-    }
-    if (table === "custom_fields") {
-      // account-scoped ownership lookup for a custom field definition
-      return { data: state.ownedCustomField, error: null };
-    }
-    if (table === "contact_custom_values") {
-      if (type === "upsert") {
-        state.upsertCalls.push({ table, payload: ops.payload });
-        return { data: null, error: null };
-      }
-      return { data: null, error: null };
-    }
-    if (table === "automations") return { data: state.automations, error: null };
-    if (table === "automation_logs") {
-      if (type === "insert") return { data: { id: "log1" }, error: null };
-      if (type === "update") return { data: null, error: null };
-      return { data: { steps_executed: [], status: "success" }, error: null };
-    }
-    if (table === "automation_steps") return { data: state.steps, error: null };
-    return { data: null, error: null };
+  const TABLE_NAMES = new Map<unknown, string>([
+    [schema.automations, "automations"],
+    [schema.automationSteps, "automation_steps"],
+    [schema.automationLogs, "automation_logs"],
+    [schema.automationPendingExecutions, "automation_pending_executions"],
+    [schema.contacts, "contacts"],
+    [schema.contactTags, "contact_tags"],
+    [schema.customFields, "custom_fields"],
+    [schema.contactCustomValues, "contact_custom_values"],
+    [schema.conversations, "conversations"],
+    [schema.deals, "deals"],
+    [schema.accounts, "accounts"],
+    [schema.users, "users"],
+  ]);
+  const nameOf = (t: unknown) => TABLE_NAMES.get(t) ?? "unknown";
+
+  function selectResult(table: string): unknown[] {
+    if (table === "contacts") return state.owned ? [state.owned] : [];
+    if (table === "custom_fields") return state.ownedCustomField ? [state.ownedCustomField] : [];
+    if (table === "automations") return state.automations;
+    if (table === "automation_steps") return state.steps;
+    if (table === "automation_logs") return [{ stepsExecuted: [], status: "success" }];
+    return [];
   }
 
-  function builder(table: string) {
-    const ops = {
-      table,
-      type: "select",
-      payload: undefined as unknown,
-      filters: [] as [string, string, unknown][],
-    };
+  function selectBuilder() {
+    let table = "unknown";
     const b: Record<string, unknown> = {
-      select: () => b,
-      insert: (p: unknown) => ((ops.type = "insert"), (ops.payload = p), b),
-      update: (p: unknown) => ((ops.type = "update"), (ops.payload = p), b),
-      delete: () => ((ops.type = "delete"), b),
-      upsert: (p: unknown) => ((ops.type = "upsert"), (ops.payload = p), b),
-      eq: (k: string, v: unknown) => (ops.filters.push(["eq", k, v]), b),
-      gte: () => b,
-      is: () => b,
-      order: () => b,
+      from: (t: unknown) => {
+        table = nameOf(t);
+        state.fromCalls.push(table);
+        return b;
+      },
+      where: () => b,
       limit: () => b,
-      single: () => Promise.resolve(resolve(ops)),
-      maybeSingle: () => Promise.resolve(resolve(ops)),
-      then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
-        Promise.resolve(resolve(ops)).then(onF, onR),
+      orderBy: () => b,
+      then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+        Promise.resolve(selectResult(table)).then(res, rej),
     };
     return b;
   }
 
-  return {
-    supabaseAdmin: () => ({
-      from: (t: string) => {
-        state.fromCalls.push(t);
-        return builder(t);
+  function insertBuilder(table: unknown) {
+    const name = nameOf(table);
+    let values: unknown;
+    const b: Record<string, unknown> = {
+      values: (v: unknown) => {
+        values = v;
+        return b;
       },
-      rpc: () => Promise.resolve({ error: null }),
-    }),
+      onConflictDoNothing: () => b,
+      onConflictDoUpdate: () => {
+        if (name === "contact_custom_values") state.upsertCalls.push({ table: name, values });
+        return b;
+      },
+      returning: () => b,
+      then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => {
+        const result = name === "automation_logs" ? [{ id: "log1" }] : [];
+        return Promise.resolve(result).then(res, rej);
+      },
+    };
+    return b;
+  }
+
+  function updateBuilder(table: unknown) {
+    const name = nameOf(table);
+    const b: Record<string, unknown> = {
+      set: (v: unknown) => {
+        if (name === "contacts") state.updateCalls.push({ table: name, values: v });
+        return b;
+      },
+      where: () => b,
+      returning: () => b,
+      then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => {
+        const result = name === "automation_pending_executions" ? [{ id: "claim1" }] : undefined;
+        return Promise.resolve(result).then(res, rej);
+      },
+    };
+    return b;
+  }
+
+  function deleteBuilder(table: unknown) {
+    const b: Record<string, unknown> = {
+      where: () => b,
+      then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+        Promise.resolve(undefined).then(res, rej),
+    };
+    void table;
+    return b;
+  }
+
+  return {
+    db: {
+      select: () => selectBuilder(),
+      insert: (table: unknown) => insertBuilder(table),
+      update: (table: unknown) => updateBuilder(table),
+      delete: (table: unknown) => deleteBuilder(table),
+    },
   };
 });
 
-vi.mock("./meta-send", () => ({
+vi.mock("./uazapi-send", () => ({
   engineSendText: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
   engineSendTemplate: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
   engineSendInteractive: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
@@ -140,7 +176,7 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
       accountId: ACCOUNT,
       triggerType: "new_message_received",
       contactId: "c1",
-      context: {},
+      context: { message_text: "manual trigger" },
     });
 
     expect(h.state.fromCalls).toContain("automations");
@@ -159,9 +195,8 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
     });
 
     expect(h.state.updateCalls).toHaveLength(1);
-    const filters = h.state.updateCalls[0].filters;
-    expect(filters).toContainEqual(["eq", "id", "c1"]);
-    expect(filters).toContainEqual(["eq", "account_id", ACCOUNT]);
+    expect(h.state.updateCalls[0].table).toBe("contacts");
+    expect(h.state.updateCalls[0].values).toMatchObject({ company: "pwned-by-automation" });
   });
 });
 
@@ -182,9 +217,9 @@ describe("update_contact_field — custom fields", () => {
     // No direct contacts column write for a custom field.
     expect(h.state.updateCalls).toHaveLength(0);
     expect(h.state.upsertCalls).toHaveLength(1);
-    expect(h.state.upsertCalls[0].payload).toEqual({
-      contact_id: "c1",
-      custom_field_id: "cf1",
+    expect(h.state.upsertCalls[0].values).toMatchObject({
+      contactId: "c1",
+      customFieldId: "cf1",
       value: "Premium",
     });
   });
@@ -203,9 +238,7 @@ describe("update_contact_field — custom fields", () => {
     });
 
     expect(h.state.upsertCalls).toHaveLength(1);
-    expect(
-      (h.state.upsertCalls[0].payload as { value: string }).value,
-    ).toBe("WhatsApp Ad");
+    expect((h.state.upsertCalls[0].values as { value: string }).value).toBe("WhatsApp Ad");
   });
 
   it("refuses to write a custom field from another account", async () => {

@@ -80,7 +80,7 @@ export function QuickRepliesManager() {
   const save = useCallback(async () => {
     if (!draft) return;
     if (!draft.title.trim()) {
-      toast.error("Give the quick reply a name.");
+      toast.error("Dê um nome para a mensagem pronta.");
       return;
     }
     const payload =
@@ -110,14 +110,14 @@ export function QuickRepliesManager() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? "Couldn't save the quick reply.");
+        toast.error(data.error ?? "Não foi possível salvar a mensagem pronta.");
         return;
       }
-      toast.success(draft.id ? "Quick reply updated." : "Quick reply created.");
+      toast.success(draft.id ? "Mensagem pronta atualizada." : "Mensagem pronta criada.");
       setDraft(null);
       await load();
     } catch {
-      toast.error("Couldn't save the quick reply.");
+      toast.error("Não foi possível salvar a mensagem pronta.");
     } finally {
       setSaving(false);
     }
@@ -125,10 +125,10 @@ export function QuickRepliesManager() {
 
   const remove = useCallback(
     async (id: string) => {
-      if (!window.confirm("Delete this quick reply?")) return;
+      if (!window.confirm("Excluir esta mensagem pronta?")) return;
       const res = await fetch(`/api/quick-replies/${id}`, { method: "DELETE" });
       if (!res.ok) {
-        toast.error("Couldn't delete the quick reply.");
+        toast.error("Não foi possível excluir a mensagem pronta.");
         return;
       }
       await load();
@@ -139,12 +139,12 @@ export function QuickRepliesManager() {
   return (
     <div>
       <SettingsPanelHead
-        title="Quick replies"
-        description="Reusable snippets — plain text or a saved interactive message — that agents can insert from the inbox composer."
+        title="Mensagens prontas"
+        description="Textos reutilizáveis — texto simples ou uma mensagem interativa salva — que os atendentes podem inserir direto no composer da Central de Atendimento."
         action={
           <Button onClick={openCreate}>
             <Plus className="mr-1 h-4 w-4" />
-            New quick reply
+            Nova mensagem pronta
           </Button>
         }
       />
@@ -155,7 +155,7 @@ export function QuickRepliesManager() {
         </div>
       ) : items.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
-          No quick replies yet. Create one to reuse it across conversations.
+          Nenhuma mensagem pronta ainda. Crie uma para reutilizar nas conversas.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -205,17 +205,17 @@ export function QuickRepliesManager() {
       <Dialog open={!!draft} onOpenChange={(o) => !o && setDraft(null)}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{draft?.id ? "Edit quick reply" : "New quick reply"}</DialogTitle>
+            <DialogTitle>{draft?.id ? "Editar mensagem pronta" : "Nova mensagem pronta"}</DialogTitle>
           </DialogHeader>
           {draft && (
             <div className="max-h-[70vh] space-y-3 overflow-y-auto">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Name</label>
+                  <label className="mb-1 block text-xs text-muted-foreground">Nome</label>
                   <Input
                     value={draft.title}
                     onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                    placeholder="e.g. Business hours"
+                    placeholder="ex.: Horário de atendimento"
                     className="bg-muted text-foreground"
                   />
                 </div>
@@ -242,12 +242,12 @@ export function QuickRepliesManager() {
               <div className="flex gap-2">
                 <KindTab
                   active={draft.kind === "text"}
-                  label="Text"
+                  label="Texto"
                   onClick={() => setDraft({ ...draft, kind: "text" })}
                 />
                 <KindTab
                   active={draft.kind === "interactive"}
-                  label="Interactive"
+                  label="Interativa"
                   onClick={() => setDraft({ ...draft, kind: "interactive" })}
                 />
               </div>
@@ -255,7 +255,7 @@ export function QuickRepliesManager() {
                 <Textarea
                   value={draft.content_text}
                   onChange={(e) => setDraft({ ...draft, content_text: e.target.value })}
-                  placeholder="The message text to insert"
+                  placeholder="O texto da mensagem a ser inserido"
                   className="min-h-28 bg-muted text-foreground"
                 />
               ) : (
@@ -268,11 +268,11 @@ export function QuickRepliesManager() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDraft(null)} disabled={saving}>
-              Cancel
+              Cancelar
             </Button>
             <Button onClick={save} disabled={saving}>
               {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Save
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
