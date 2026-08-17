@@ -11,6 +11,7 @@ export function toApiTask(row: TaskRow) {
     assigned_to: row.assignedTo ?? undefined,
     note: row.note,
     due_at: row.dueAt,
+    send_as_message: row.sendAsMessage,
     status: row.status,
     completed_at: row.completedAt ?? undefined,
     created_at: row.createdAt,

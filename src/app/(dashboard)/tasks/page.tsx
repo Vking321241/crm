@@ -11,11 +11,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { format, isToday } from 'date-fns';
 import { toast } from 'sonner';
-import { CalendarClock, Check, Loader2, Plus, Search } from 'lucide-react';
+import { CalendarClock, Check, Loader2, MessageSquareText, Plus, Search } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ interface AccountTask {
   due_at: string;
   status: 'pending' | 'done';
   is_overdue: boolean;
+  send_as_message: boolean;
 }
 
 const POLL_MS = 15000;
@@ -54,6 +56,7 @@ export default function TasksPage() {
   const [selectedConversation, setSelectedConversation] = useState<ConversationOption | null>(null);
   const [newNote, setNewNote] = useState('');
   const [newDueAt, setNewDueAt] = useState('');
+  const [newSendAsMessage, setNewSendAsMessage] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async (showSpinner: boolean) => {
@@ -103,6 +106,7 @@ export default function TasksPage() {
     setSelectedConversation(null);
     setNewNote('');
     setNewDueAt('');
+    setNewSendAsMessage(false);
   }
 
   async function handleCreateTask() {
@@ -112,7 +116,11 @@ export default function TasksPage() {
       const res = await fetch(`/api/conversations/${selectedConversation.id}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: newNote.trim(), dueAt: new Date(newDueAt).toISOString() }),
+        body: JSON.stringify({
+          note: newNote.trim(),
+          dueAt: new Date(newDueAt).toISOString(),
+          sendAsMessage: newSendAsMessage,
+        }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -271,6 +279,15 @@ export default function TasksPage() {
               disabled={!selectedConversation}
               className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 disabled:opacity-50"
             />
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={newSendAsMessage}
+                onCheckedChange={(v) => setNewSendAsMessage(v === true)}
+                disabled={!selectedConversation}
+                className="mt-0.5"
+              />
+              <span>Enviar automaticamente como mensagem no WhatsApp na data/hora marcada</span>
+            </label>
           </div>
 
           <DialogFooter className="bg-popover border-border">
@@ -370,6 +387,12 @@ function TaskColumn({
                         : 'text-sm text-foreground'
                     }
                   >
+                    {task.send_as_message && (
+                      <MessageSquareText
+                        className="mr-1 inline-block size-3.5 shrink-0 align-text-top text-primary"
+                        aria-label="Mensagem agendada"
+                      />
+                    )}
                     {task.note}
                   </p>
                   <Link

@@ -9,10 +9,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarClock, Check, Loader2, Plus, Trash2 } from 'lucide-react';
+import { CalendarClock, Check, Loader2, MessageSquareText, Plus, Trash2 } from 'lucide-react';
 import { format, isPast } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface ConversationTask {
   id: string;
@@ -20,6 +21,7 @@ interface ConversationTask {
   due_at: string;
   status: 'pending' | 'done';
   completed_at?: string;
+  send_as_message: boolean;
 }
 
 export function ConversationTasks({ conversationId }: { conversationId: string }) {
@@ -28,6 +30,7 @@ export function ConversationTasks({ conversationId }: { conversationId: string }
   const [formOpen, setFormOpen] = useState(false);
   const [note, setNote] = useState('');
   const [dueAt, setDueAt] = useState('');
+  const [sendAsMessage, setSendAsMessage] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -56,7 +59,11 @@ export function ConversationTasks({ conversationId }: { conversationId: string }
       const res = await fetch(`/api/conversations/${conversationId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note.trim(), dueAt: new Date(dueAt).toISOString() }),
+        body: JSON.stringify({
+          note: note.trim(),
+          dueAt: new Date(dueAt).toISOString(),
+          sendAsMessage,
+        }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -65,6 +72,7 @@ export function ConversationTasks({ conversationId }: { conversationId: string }
       }
       setNote('');
       setDueAt('');
+      setSendAsMessage(false);
       setFormOpen(false);
       await load();
     } finally {
@@ -130,6 +138,17 @@ export function ConversationTasks({ conversationId }: { conversationId: string }
             onChange={(e) => setDueAt(e.target.value)}
             className="w-full rounded-md border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary/50"
           />
+          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={sendAsMessage}
+              onCheckedChange={(v) => setSendAsMessage(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              Enviar automaticamente como mensagem no WhatsApp na data/hora marcada
+              {sendAsMessage && ' (em vez de só lembrar o atendente)'}
+            </span>
+          </label>
           <div className="flex justify-end gap-1.5">
             <Button
               size="sm"
@@ -186,10 +205,16 @@ export function ConversationTasks({ conversationId }: { conversationId: string }
                         : 'text-xs text-foreground'
                     }
                   >
+                    {task.send_as_message && (
+                      <MessageSquareText
+                        className="mr-1 inline-block size-3 shrink-0 align-text-top text-primary"
+                        aria-label="Mensagem agendada"
+                      />
+                    )}
                     {task.note}
                   </p>
                   <p className={overdue ? 'mt-0.5 text-[10px] font-medium text-red-400' : 'mt-0.5 text-[10px] text-muted-foreground'}>
-                    {overdue ? 'Atrasada · ' : ''}
+                    {overdue ? (task.send_as_message ? 'Envio atrasado · ' : 'Atrasada · ') : ''}
                     {format(new Date(task.due_at), 'dd/MM/yyyy HH:mm')}
                   </p>
                 </div>

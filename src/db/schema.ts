@@ -902,6 +902,12 @@ export const conversationTasks = pgTable(
     dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
     status: conversationTaskStatusEnum("status").notNull().default("pending"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    // When true, /api/cron/tasks sends `note` as a WhatsApp text
+    // message to the conversation's contact once `dueAt` passes,
+    // then auto-marks the task "done" — same bucket a human
+    // completing a plain reminder lands in. False (the default) is
+    // today's behavior: a reminder only, never sent anywhere.
+    sendAsMessage: boolean("send_as_message").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -2,7 +2,7 @@
 // GET  /api/conversations/[id]/tasks — list tasks for a conversation,
 //      newest due first. Any member can read.
 // POST /api/conversations/[id]/tasks — create a scheduled task.
-//      Body: { note, dueAt (ISO), assignedTo? }. Agent+.
+//      Body: { note, dueAt (ISO), assignedTo?, sendAsMessage? }. Agent+.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -52,7 +52,7 @@ export async function POST(
     }
 
     const body = (await request.json().catch(() => null)) as
-      | { note?: unknown; dueAt?: unknown; assignedTo?: unknown }
+      | { note?: unknown; dueAt?: unknown; assignedTo?: unknown; sendAsMessage?: unknown }
       | null;
 
     const note = typeof body?.note === "string" ? body.note.trim() : "";
@@ -66,6 +66,7 @@ export async function POST(
     }
 
     const assignedTo = typeof body?.assignedTo === "string" ? body.assignedTo : null;
+    const sendAsMessage = body?.sendAsMessage === true;
 
     const [row] = await ctx.db
       .insert(conversationTasks)
@@ -76,6 +77,7 @@ export async function POST(
         assignedTo,
         note,
         dueAt,
+        sendAsMessage,
       })
       .returning();
 

@@ -38,6 +38,7 @@ export async function GET() {
       due_at: task.dueAt,
       status: task.status,
       completed_at: task.completedAt ?? undefined,
+      send_as_message: task.sendAsMessage,
       is_overdue: task.status === "pending" && new Date(task.dueAt).getTime() < now,
       created_at: task.createdAt,
     }));

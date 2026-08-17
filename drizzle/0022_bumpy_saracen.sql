@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_tasks" ADD COLUMN "send_as_message" boolean DEFAULT false NOT NULL;
