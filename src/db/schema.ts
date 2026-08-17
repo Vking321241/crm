@@ -819,6 +819,26 @@ export const signupLeads = pgTable(
 );
 
 // ------------------------------------------------------------
+// webhook_debug_log — TEMPORARY capture of raw UAZAPI webhook bodies,
+// used only to reverse-engineer field names this codebase has been
+// guessing at (see src/lib/whatsapp/uazapi-client.ts parseUazapiWebhook
+// header comment). Not account-scoped — this is operator tooling, not
+// product data. Safe to drop this table entirely once UAZAPI's real
+// payload shapes (in particular: reactions) are confirmed and the
+// parser is verified against them.
+// ------------------------------------------------------------
+export const webhookDebugLog = pgTable(
+  "webhook_debug_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").notNull(),
+    body: jsonb("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_webhook_debug_log_created").on(table.createdAt)],
+);
+
+// ------------------------------------------------------------
 // user_permissions — per-user, per-module access grants. Layered on
 // top of `users.accountRole`: owner/admin always have full access
 // (see src/lib/auth/permissions.ts) regardless of what's in this

@@ -1,5 +1,5 @@
 import { NextResponse, after } from "next/server";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, desc, inArray } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -10,6 +10,7 @@ import {
   messages,
   messageReactions,
   autoReplySettings,
+  webhookDebugLog,
   DEFAULT_BUSINESS_HOURS,
 } from "@/db/schema";
 import { findExistingContactDb, isUniqueViolation } from "@/lib/contacts/dedupe";
@@ -52,9 +53,32 @@ export async function POST(
     } catch (err) {
       console.error("[uazapi webhook] processing error:", err);
     }
+    await captureDebugLog(body);
   });
 
   return NextResponse.json({ status: "received" }, { status: 200 });
+}
+
+// TEMP — captures every raw inbound webhook body so field-name guesses
+// in parseUazapiWebhook can be checked against a real payload via
+// GET /api/debug/webhook-log (token-gated, see that route) instead of
+// container logs we don't have access to. Keeps only the newest 40
+// rows. Best-effort: never let a logging failure affect delivery. Drop
+// this whole table + route once the parser is confirmed correct.
+async function captureDebugLog(body: unknown) {
+  try {
+    await db.insert(webhookDebugLog).values({ source: "uazapi", body: body as object });
+    const stale = await db
+      .select({ id: webhookDebugLog.id })
+      .from(webhookDebugLog)
+      .orderBy(desc(webhookDebugLog.createdAt))
+      .offset(40);
+    if (stale.length > 0) {
+      await db.delete(webhookDebugLog).where(inArray(webhookDebugLog.id, stale.map((s) => s.id)));
+    }
+  } catch (err) {
+    console.error("[uazapi webhook] debug log capture failed:", err);
+  }
 }
 
 async function processInbound(instanceId: string, body: unknown) {
