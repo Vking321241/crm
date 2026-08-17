@@ -141,6 +141,65 @@ export async function createInstance(
   };
 }
 
+export interface UazapiInstanceSummary {
+  /** Human-recognizable name — the identifier used to pick an
+   *  instance from the list and match it back server-side when
+   *  assigning it to a client (see /api/admin/clients/[accountId]/instance). */
+  name: string;
+  status: InstanceStatusResult["status"];
+  phoneNumber?: string;
+  /** Per-instance token. Kept out of API responses sent to the
+   *  browser (see the admin instances route) — resolved server-side
+   *  by re-calling this function and matching on `name`. */
+  token: string;
+}
+
+/**
+ * Lists every instance that exists under this UAZAPI server/admin
+ * token — lets the platform owner browse what's already provisioned
+ * (in UAZAPI itself, not just in this app's DB) before assigning one
+ * to a client. Endpoint path is a best guess (`/instance/all`,
+ * mirroring the `instance/init|connect|status` naming already used
+ * here) — UAZAPI's exact list endpoint/response shape varies by
+ * install; adjust the URL and the `pick()` field names below if your
+ * server differs, same as every other call in this file.
+ */
+export async function listInstances(
+  admin: UazapiAdminConfig,
+): Promise<UazapiResult<UazapiInstanceSummary[]>> {
+  const res = await request<unknown>(
+    `${trimBase(admin.baseUrl)}/instance/all`,
+    { admintoken: admin.adminToken },
+    undefined,
+    "GET",
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+
+  const rawList: unknown[] = Array.isArray(res.data)
+    ? res.data
+    : Array.isArray((res.data as Record<string, unknown> | null)?.instances)
+      ? ((res.data as Record<string, unknown>).instances as unknown[])
+      : Array.isArray((res.data as Record<string, unknown> | null)?.data)
+        ? ((res.data as Record<string, unknown>).data as unknown[])
+        : [];
+
+  const items: UazapiInstanceSummary[] = [];
+  for (const raw of rawList) {
+    const token = pick(raw, "token", "instance.token", "apikey");
+    const name = pick(raw, "name", "instance.name", "instanceName");
+    if (!token || !name) continue;
+    const rawStatus = (pick(raw, "status", "instance.status", "connectionStatus") ?? "").toLowerCase();
+    items.push({
+      name,
+      token,
+      status: STATUS_MAP[rawStatus] ?? "disconnected",
+      phoneNumber: pick(raw, "phone", "phoneNumber", "instance.phone", "owner"),
+    });
+  }
+
+  return { ok: true, data: items };
+}
+
 export interface ConnectInstanceResult {
   qrCodeBase64?: string;
   pairingCode?: string;

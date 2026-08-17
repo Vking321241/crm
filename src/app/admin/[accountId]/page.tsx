@@ -8,6 +8,7 @@ import { accounts, users } from "@/db/schema";
 import { ConnectInstanceCard } from "@/components/whatsapp/connect-instance-card";
 import { ClientDetailsEditor } from "./seats-editor";
 import { DeleteClientButton } from "./delete-client-button";
+import { AssignInstanceDialog } from "./assign-instance-dialog";
 
 export default async function AdminClientDetailPage({
   params,
@@ -43,6 +44,10 @@ export default async function AdminClientDetailPage({
         <p className="text-sm text-muted-foreground">
           {memberCount} usuário(s) de {account.maxAgentSeats} vaga(s)
         </p>
+      </div>
+
+      <div className="flex justify-end">
+        <AssignInstanceDialog accountId={account.id} />
       </div>
 
       <div className="grid gap-6 sm:grid-cols-2">

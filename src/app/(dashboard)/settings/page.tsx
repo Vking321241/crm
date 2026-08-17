@@ -21,13 +21,14 @@ import { MembersTab } from '@/components/settings/members-tab';
 import { PermissionsMatrix } from '@/components/settings/permissions-matrix';
 import {
   resolveSection,
+  visibleSections,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
 
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { defaultCurrency, canEditSettings, profileLoading } = useAuth();
   const { mode } = useTheme();
   const t = useTranslations('Settings');
 
@@ -35,7 +36,17 @@ export default function SettingsPage() {
   // section — deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
   // resolve onto their new home; unknown/empty → the Overview landing.
-  const section = resolveSection(searchParams.get('tab'));
+  // Non-admin members ("atendente") only manage their own account —
+  // a direct ?tab=whatsapp (or any workspace section) falls back to
+  // their profile instead, mirroring the rail's own filtering
+  // (visibleSections) so URL-guessing can't reach an admin-only panel.
+  const requestedSection = resolveSection(searchParams.get('tab'));
+  const allowed = visibleSections(canEditSettings);
+  const section: SettingsSection = profileLoading
+    ? requestedSection
+    : allowed.includes(requestedSection)
+      ? requestedSection
+      : 'profile';
 
   const go = (next: SettingsSection) => {
     const params = new URLSearchParams(searchParams.toString());

@@ -41,6 +41,27 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export const DEFAULT_SECTION: SettingsSection = 'overview';
 
+/**
+ * Non-admin members ("atendente") only manage their own account —
+ * profile, login/security, and appearance. Everything workspace-wide
+ * (WhatsApp, mensagens prontas, setores, membros, permissões, …) is
+ * admin+ only, both as a UI affordance (hidden from the rail — see
+ * `visibleSections`) and enforced server-side by each route's own
+ * `requireRole`/`requireModule` guard. A member who checks every
+ * permission module ("gerente") still doesn't get Settings access —
+ * modules gate app screens (inbox, spy mode, reports, …), not the
+ * account-wide configuration surface, which stays a role boundary.
+ */
+export const ACCOUNT_ONLY_SECTIONS: readonly SettingsSection[] = [
+  'profile',
+  'security',
+  'appearance',
+];
+
+export function visibleSections(isAdmin: boolean): readonly SettingsSection[] {
+  return isAdmin ? SETTINGS_SECTIONS : ACCOUNT_ONLY_SECTIONS;
+}
+
 /** Rail grouping. `adminOnly` items are hidden for non-admins. */
 export interface SectionMeta {
   id: SettingsSection;

@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { accounts } from "@/db/schema";
 import { CreateClientDialog } from "./create-client-dialog";
 import { DeleteClientRowButton } from "./delete-client-row-button";
+import { UazapiConfigCard } from "./uazapi-config-card";
 
 export default async function AdminClientsPage() {
   const clients = await db
@@ -30,6 +31,8 @@ export default async function AdminClientsPage() {
         </div>
         <CreateClientDialog />
       </div>
+
+      <UazapiConfigCard />
 
       {clients.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-16 text-center text-muted-foreground">

@@ -83,6 +83,15 @@ export const accounts = pgTable(
     // joao@cliente1.com). Null until the platform owner or account
     // admin sets it; POST /api/account/members requires it.
     emailDomain: text("email_domain"),
+    // Platform-wide UAZAPI credentials, set from /admin (see
+    // src/lib/whatsapp/platform-config.ts). Only meaningful on the
+    // single is_platform=true row — every other account's own
+    // instance lives in whatsapp_instances. Null falls back to the
+    // UAZAPI_SERVER_URL / UAZAPI_ADMIN_TOKEN env vars. Token is
+    // encrypted at rest with the same AES-256-GCM scheme as
+    // whatsapp_instances.uazapi_token (src/lib/whatsapp/encryption.ts).
+    uazapiServerUrl: text("uazapi_server_url"),
+    uazapiAdminToken: text("uazapi_admin_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
