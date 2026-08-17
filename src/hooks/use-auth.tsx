@@ -17,16 +17,17 @@ import {
   isAccountRole,
   type AccountRole,
 } from "@/lib/auth/roles";
+import { isPermissionModule, type PermissionModule } from "@/lib/auth/permissions";
 
 // Fatia 2: this hook's PUBLIC SHAPE is unchanged from the Supabase
 // version on purpose (same field names on Profile/AccountSummary/
 // AuthContextValue) — every consumer (sidebar.tsx, settings pages,
 // role gates) keeps working untouched. Only the data source changed:
 // a single GET /api/auth/me instead of a Supabase session + two
-// table reads. `beta_features` / legacy `role` / `default_currency`
-// aren't modeled in the new schema yet (out of Fatia 2's scope —
-// nothing here needs them) and are stubbed to safe defaults so
-// existing call sites don't have to special-case a missing field.
+// table reads. `beta_features` / legacy `role` aren't modeled in
+// the new schema yet and are stubbed to safe defaults so existing
+// call sites don't have to special-case a missing field. The account
+// default currency now comes from Postgres (`accounts.default_currency`).
 
 interface User {
   id: string;
@@ -55,6 +56,9 @@ interface AccountSummary {
   /** True only for the single platform-operator account. Drives the
    *  "Painel da plataforma" link in the sidebar. */
   is_platform: boolean;
+  /** Domain used to auto-build an atendente's login e-mail (e.g.
+   *  "cliente1.com"). Null until an admin sets it in Membros. */
+  email_domain: string | null;
 }
 
 interface MeResponse {
@@ -67,7 +71,14 @@ interface MeResponse {
     accountRole: string;
     createdAt: string;
   } | null;
-  account: { id: string; name: string; isPlatform: boolean; maxAgentSeats: number } | null;
+  account: {
+    id: string;
+    name: string;
+    isPlatform: boolean;
+    maxAgentSeats: number;
+    defaultCurrency: string;
+    emailDomain: string | null;
+  } | null;
 }
 
 interface AuthContextValue {
@@ -88,6 +99,10 @@ interface AuthContextValue {
   canManageMembers: boolean;
   canEditSettings: boolean;
   canSendMessages: boolean;
+  /** Modules this user can access — for owner/admin this is every
+   *  known module; for agent/viewer it's their explicit grants. */
+  permissions: Set<PermissionModule>;
+  hasPermission: (module: PermissionModule) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -96,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [permissions, setPermissions] = useState<Set<PermissionModule>>(new Set());
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
 
@@ -103,14 +119,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfileLoading(true);
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
-      const data = (await res.json()) as MeResponse;
+      const data = (await res.json()) as MeResponse & { permissions?: unknown };
 
       if (!data.user) {
         setUser(null);
         setProfile(null);
         setAccount(null);
+        setPermissions(new Set());
         return;
       }
+
+      setPermissions(
+        new Set(
+          Array.isArray(data.permissions)
+            ? data.permissions.filter(isPermissionModule)
+            : [],
+        ),
+      );
 
       setUser({ id: data.user.id, email: data.user.email, created_at: data.user.createdAt });
 
@@ -131,8 +156,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? {
               id: data.account.id,
               name: data.account.name,
-              default_currency: DEFAULT_CURRENCY,
+              default_currency: data.account.defaultCurrency ?? DEFAULT_CURRENCY,
               is_platform: data.account.isPlatform,
+              email_domain: data.account.emailDomain ?? null,
             }
           : null,
       );
@@ -141,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setProfile(null);
       setAccount(null);
+      setPermissions(new Set());
     } finally {
       setProfileLoading(false);
       setLoading(false);
@@ -156,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setProfile(null);
     setAccount(null);
+    setPermissions(new Set());
     window.location.href = "/login";
   }, []);
 
@@ -178,6 +206,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [profile?.account_role, profile?.account_id]);
 
+  const hasPermission = useCallback(
+    (module: PermissionModule) => permissions.has(module),
+    [permissions],
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -189,6 +222,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshProfile,
         account,
         defaultCurrency: account?.default_currency ?? DEFAULT_CURRENCY,
+        permissions,
+        hasPermission,
         ...derived,
       }}
     >
@@ -224,6 +259,8 @@ export function useAuth(): AuthContextValue {
       canManageMembers: false,
       canEditSettings: false,
       canSendMessages: false,
+      permissions: new Set<PermissionModule>(),
+      hasPermission: () => false,
     };
   }
   return ctx;

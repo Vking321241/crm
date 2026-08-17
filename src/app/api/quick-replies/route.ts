@@ -5,6 +5,15 @@ import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/acco
 import { quickReplies } from '@/db/schema'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 
+/** Normalizes a raw shortcut input ("/Pix", " pix ") down to the bare
+ *  lowercase keyword ("pix") stored in the DB — the leading "/" is
+ *  only ever a UI affordance, never part of the stored value. */
+function normalizeShortcut(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim().replace(/^\/+/, '').toLowerCase()
+  return trimmed || null
+}
+
 // Quick replies — reusable snippets (plain text or a saved interactive
 // message) shared across the account. GET lists; POST creates. Ported
 // off `supabaseAdmin()` onto Drizzle (Fatia: Inbox) — every query is
@@ -17,6 +26,7 @@ function toApiQuickReply(row: typeof quickReplies.$inferSelect) {
     account_id: row.accountId,
     user_id: row.userId ?? undefined,
     title: row.title,
+    shortcut: row.shortcut ?? undefined,
     kind: row.kind,
     content_text: row.contentText ?? undefined,
     interactive_payload: row.interactivePayload ?? undefined,
@@ -78,6 +88,7 @@ export async function POST(request: Request) {
         accountId: ctx.accountId,
         userId: ctx.userId,
         title,
+        shortcut: normalizeShortcut(body.shortcut),
         kind,
         contentText,
         interactivePayload: interactivePayload ?? undefined,

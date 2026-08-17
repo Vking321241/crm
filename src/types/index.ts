@@ -150,9 +150,11 @@ export interface ContactCustomValue {
 export interface ContactNote {
   id: string;
   contact_id: string;
-  user_id: string;
+  user_id: string | null;
   note_text: string;
   created_at: string;
+  /** Author's display name — null if the user was deleted. */
+  author_name?: string | null;
 }
 
 export type ConversationStatus = 'open' | 'pending' | 'closed';
@@ -182,6 +184,9 @@ export interface Conversation {
   ai_autoreply_disabled?: boolean;
   ai_reply_count?: number;
   ai_handoff_summary?: string | null;
+  /** The contact's product/service tags — e.g. [Setor Gráfico],
+   *  [Fardamentos] — shown as colored chips in the conversation list. */
+  tags?: Tag[];
 }
 
 // ============================================================
@@ -644,6 +649,10 @@ export interface QuickReply {
   /** Author / audit only. */
   user_id: string;
   title: string;
+  /** Trigger keyword for the composer's "/" popover, e.g. "pix" ->
+   *  typing "/pix" filters straight to this reply. No leading slash
+   *  stored — the slash is only the UI trigger. */
+  shortcut?: string | null;
   kind: QuickReplyKind;
   /** Set when `kind === 'text'`. */
   content_text?: string | null;

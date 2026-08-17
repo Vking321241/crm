@@ -17,10 +17,26 @@
     "brandHeadline": "One inbox for every conversation.",
     "brandSubheadline": "Manage your team's WhatsApp from a single, organized workspace."
   },
+  "ErrorPages": {
+    "notFoundTitle": "Page not found",
+    "notFoundDescription": "The page you're looking for doesn't exist or may have been moved.",
+    "notFoundAction": "Back to dashboard",
+    "errorTitle": "Something went wrong",
+    "errorDescription": "An unexpected error occurred. Try again, and if it keeps happening, contact your workspace admin.",
+    "errorRetry": "Try again",
+    "errorHome": "Back to dashboard",
+    "errorDigest": "Error reference: {digest}",
+    "globalErrorTitle": "Something went wrong",
+    "globalErrorDescription": "The application ran into an unexpected error. Try reloading the page.",
+    "globalErrorRetry": "Reload"
+  },
   "Sidebar": {
     "title": "DivaryTalk",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
+    "tasks": "Task Center",
+    "internalChat": "Team Chat",
+    "spyMode": "Spy Mode",
     "notifications": "Notifications",
     "contacts": "Contacts",
     "stats": "Stats",
@@ -260,7 +276,8 @@
       "deals": "Deals",
       "noTags": "No tags",
       "noDeals": "No deals",
-      "addNotePlaceholder": "Add a note..."
+      "addNotePlaceholder": "Add a note...",
+      "unknownAuthor": "Team"
     },
     "aiBanner": {
       "pausedTitle": "AI assistant is paused here",
@@ -1451,6 +1468,7 @@
       "fields": "Fields & tags",
       "deals": "Deals & currency",
       "members": "Team members",
+      "permissions": "Permissions",
       "api": "API keys"
     },
     "groups": {

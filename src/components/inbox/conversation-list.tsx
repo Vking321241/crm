@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus } from "@/types";
-import { Search, ChevronDown, X, UserCheck } from "lucide-react";
+import { Search, ChevronDown, X, UserCheck, AlertTriangle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -32,10 +32,18 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
   closed: "bg-muted-foreground",
 };
 
-type InboxFilter = ConversationStatus | "all" | "unread";
-
 /** Poll cadence for the conversation list — no more Supabase Realtime. */
 const POLL_MS = 5000;
+
+/** A "Pendente" conversation waiting longer than this gets the
+ *  amber wait-time alert on its list row. */
+const PENDING_ALERT_MINUTES = 15;
+
+const STATUS_TABS: { value: ConversationStatus; label: string }[] = [
+  { value: "open", label: "Ativos" },
+  { value: "pending", label: "Pendentes" },
+  { value: "closed", label: "Fechados" },
+];
 
 export function ConversationList({
   activeConversationId,
@@ -43,17 +51,15 @@ export function ConversationList({
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
 
-  const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
-    { label: t("filterAll"), value: "all" },
-    { label: t("filterUnread"), value: "unread" },
-    { label: t("filterOpen"), value: "open" },
-    { label: t("filterPending"), value: "pending" },
-    { label: t("filterClosed"), value: "closed" },
-  ], [t]);
-
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<InboxFilter>("all");
+  const [filter, setFilter] = useState<ConversationStatus>("open");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [counts, setCounts] = useState<Record<ConversationStatus, number>>({
+    open: 0,
+    pending: 0,
+    closed: 0,
+  });
   const [loading, setLoading] = useState(true);
   // Company filter — derived from whatever conversations are already
   // loaded (there's no separate companies table). Tag filtering was
@@ -75,9 +81,7 @@ export function ConversationList({
 
   const fetchConversations = useCallback(async () => {
     const params = new URLSearchParams();
-    if (filter === "open" || filter === "pending" || filter === "closed") {
-      params.set("status", filter);
-    }
+    params.set("status", filter);
     if (search.trim()) params.set("search", search.trim());
     if (mineOnly) params.set("assignedToMe", "1");
     if (selectedDepartment) params.set("departmentId", selectedDepartment);
@@ -90,6 +94,30 @@ export function ConversationList({
     const data = await res.json();
     return (data.conversations ?? []) as Conversation[];
   }, [filter, search, mineOnly, selectedDepartment]);
+
+  const fetchCounts = useCallback(async () => {
+    const res = await fetch("/api/conversations/counts", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (data?.counts) setCounts(data.counts);
+  }, []);
+
+  useEffect(() => {
+    const kick = setTimeout(() => void fetchCounts(), 0);
+    const timer = setInterval(() => void fetchCounts(), POLL_MS);
+    return () => {
+      clearTimeout(kick);
+      clearInterval(timer);
+    };
+  }, [fetchCounts]);
+
+  // Ticks every 30s so the pending wait-time alert (Date.now()-based)
+  // updates live without depending on the next conversations poll.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Debounced fetch on filter/search change + poll loop. Search/filter
   // changes reset the poll timer so a fast typist doesn't stack requests.
@@ -130,17 +158,17 @@ export function ConversationList({
   const filtered = useMemo(() => {
     let result = conversations;
 
-    if (filter === "unread") {
+    if (unreadOnly) {
       result = result.filter((c) => c.unread_count > 0);
     }
-    // status filters are applied server-side already (see fetchConversations)
+    // status filter is applied server-side already (see fetchConversations)
 
     if (selectedCompany !== null) {
       result = result.filter((c) => c.contact?.company?.trim() === selectedCompany);
     }
 
     return result;
-  }, [conversations, filter, selectedCompany]);
+  }, [conversations, unreadOnly, selectedCompany]);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -156,10 +184,49 @@ export function ConversationList({
     [onSelect]
   );
 
-  const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
-
   return (
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
+      {/* Status tabs — Ativos / Pendentes / Fechados */}
+      <div className="flex border-b border-border">
+        {STATUS_TABS.map((tab) => {
+          const isActive = filter === tab.value;
+          const pendingWaiting =
+            tab.value === "pending" &&
+            conversations.some(
+              (c) =>
+                c.status === "pending" &&
+                c.last_message_at &&
+                nowMs - new Date(c.last_message_at).getTime() > PENDING_ALERT_MINUTES * 60_000,
+            );
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setFilter(tab.value)}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 border-b-2 px-2 py-2.5 text-xs font-medium transition-colors",
+                isActive
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {tab.value === "pending" && pendingWaiting && (
+                <AlertTriangle className="size-3 text-amber-500" />
+              )}
+              {tab.label}
+              <span
+                className={cn(
+                  "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                  isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {counts[tab.value]}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Search + Filter */}
       <div className="space-y-2 border-b border-border p-3">
         <div className="relative">
@@ -173,31 +240,17 @@ export function ConversationList({
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center justify-center h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground rounded-md hover:bg-muted">
-                {activeFilter?.label ?? t("filterAll")}
-                <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              {FILTER_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
-                  className={cn(
-                    "text-sm",
-                    filter === opt.value
-                      ? "text-primary"
-                      : "text-popover-foreground"
-                  )}
-                >
-                  {opt.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <button
+            type="button"
+            onClick={() => setUnreadOnly((v) => !v)}
+            aria-pressed={unreadOnly}
+            className={cn(
+              "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+              unreadOnly ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t("filterUnread")}
+          </button>
 
           <button
             type="button"
@@ -325,6 +378,7 @@ export function ConversationList({
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
                 t={t}
+                nowMs={nowMs}
               />
             ))}
           </div>
@@ -339,6 +393,7 @@ interface ConversationItemProps {
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
   t: ReturnType<typeof useTranslations>;
+  nowMs: number;
 }
 
 function ConversationItem({
@@ -346,6 +401,7 @@ function ConversationItem({
   isActive,
   onSelect,
   t,
+  nowMs,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
@@ -360,6 +416,11 @@ function ConversationItem({
         addSuffix: false,
       })
     : "";
+
+  const isWaitingTooLong =
+    conversation.status === "pending" &&
+    conversation.last_message_at &&
+    nowMs - new Date(conversation.last_message_at).getTime() > PENDING_ALERT_MINUTES * 60_000;
 
   return (
     <button
@@ -389,7 +450,10 @@ function ConversationItem({
           <span className="truncate text-sm font-medium text-foreground">
             {displayName}
           </span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
+          <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+            {isWaitingTooLong && <AlertTriangle className="size-3 text-amber-500" />}
+            {timeAgo}
+          </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="truncate text-xs text-muted-foreground">
@@ -410,6 +474,19 @@ function ConversationItem({
             />
           </div>
         </div>
+        {conversation.tags && conversation.tags.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {conversation.tags.map((tag) => (
+              <span
+                key={tag.id}
+                className="rounded-full px-1.5 py-0.5 text-[9px] font-medium"
+                style={{ backgroundColor: `${tag.color}20`, color: tag.color }}
+              >
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </button>
   );

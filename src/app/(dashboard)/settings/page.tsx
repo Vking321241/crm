@@ -18,7 +18,7 @@ import { DepartmentManager } from '@/components/settings/department-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
-import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
+import { PermissionsMatrix } from '@/components/settings/permissions-matrix';
 import {
   resolveSection,
   type SettingsSection,
@@ -66,7 +66,7 @@ export default function SettingsPage() {
     departments: <DepartmentManager />,
     deals: <DealsSettings />,
     members: <MembersTab />,
-    api: <ApiKeysSettings />,
+    permissions: <PermissionsMatrix />,
   };
 
   return (

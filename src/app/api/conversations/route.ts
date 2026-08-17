@@ -12,7 +12,7 @@ import { and, desc, eq, ilike, or } from "drizzle-orm";
 
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { conversations, contacts, conversationStatusEnum } from "@/db/schema";
-import { toApiConversation } from "./_shared";
+import { toApiConversation, loadTagsByContactId } from "./_shared";
 
 const VALID_STATUSES = conversationStatusEnum.enumValues;
 
@@ -52,8 +52,15 @@ export async function GET(request: Request) {
       .where(and(...conditions))
       .orderBy(desc(conversations.lastMessageAt), desc(conversations.createdAt));
 
+    const tagsByContact = await loadTagsByContactId(
+      ctx.db,
+      rows.map((r) => r.contact.id),
+    );
+
     return NextResponse.json({
-      conversations: rows.map((r) => toApiConversation(r.conversation, r.contact)),
+      conversations: rows.map((r) =>
+        toApiConversation(r.conversation, r.contact, tagsByContact.get(r.contact.id)),
+      ),
     });
   } catch (err) {
     return toErrorResponse(err);

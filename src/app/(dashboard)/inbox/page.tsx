@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { Conversation } from "@/types";
@@ -17,12 +17,11 @@ export default function InboxPage() {
   useTranslations("Inbox.page");
   const router = useRouter();
   const searchParams = useSearchParams();
-  /** `?c=<id>` deep-link support (e.g. from the dashboard's recent-
-   *  conversations list) — read once on mount. */
-  const deepLinkConvId = useRef(searchParams.get("c")).current;
-
+  // `?c=<id>` deep-link support (e.g. from the dashboard's recent-
+  // conversations list) — read once via the lazy initializer so it's
+  // captured on first render, not re-read as a ref during render.
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
-    deepLinkConvId,
+    () => searchParams.get("c"),
   );
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
 
@@ -116,7 +115,7 @@ export default function InboxPage() {
         {/* Right panel: Contact sidebar — desktop only. */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
-            <ContactSidebar contact={activeContact} />
+            <ContactSidebar contact={activeContact} conversationId={activeConversationId} />
           </div>
         )}
       </div>

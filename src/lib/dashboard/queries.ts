@@ -1,10 +1,11 @@
-import { and, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import {
   broadcasts,
   contacts,
   conversations,
   deals,
+  departments,
   messages,
   pipelineStages,
   users,
@@ -19,10 +20,13 @@ import {
 } from "./date-utils";
 import type {
   ActivityItem,
+  AdvancedAnalytics,
   AgentStat,
   ContactsGrowthPoint,
   ConversationsSeriesPoint,
   ConversationStatusBreakdown,
+  DepartmentSlice,
+  HeatmapCell,
   MetricsBundle,
   PipelineDonutData,
   PipelineStageSlice,
@@ -488,4 +492,192 @@ export async function loadAgentBreakdown(db: Db, accountId: string): Promise<Age
       totalCount: c.open + c.pending + c.closed,
     }))
     .sort((a, b) => b.totalCount - a.totalCount);
+}
+
+// --- 9. Advanced analytics (filtered dashboard) -------------------------
+//
+// Everything here is scoped to conversations whose createdAt falls in
+// [from, to], with optional department/agent narrowing — that's what
+// "Total de Atendimentos no Período" means. totalContactsInBase is
+// the one exception (account-wide, unaffected by the filters), per
+// the "Contatos Totais na Base" KPI spec.
+//
+// Receptivo vs Ativo is derived from each conversation's first
+// message: the customer messaged first (receptivo) or an agent/bot
+// did (ativo, e.g. a broadcast or manual outbound opener).
+
+export interface AdvancedAnalyticsFilters {
+  from: Date;
+  to: Date;
+  departmentId?: string;
+  agentId?: string;
+}
+
+export async function loadAdvancedAnalytics(
+  db: Db,
+  accountId: string,
+  filters: AdvancedAnalyticsFilters,
+): Promise<AdvancedAnalytics> {
+  const { from, to, departmentId, agentId } = filters;
+
+  const conditions = [
+    eq(conversations.accountId, accountId),
+    gte(conversations.createdAt, from),
+    lte(conversations.createdAt, to),
+  ];
+  if (departmentId) conditions.push(eq(conversations.departmentId, departmentId));
+  if (agentId) conditions.push(eq(conversations.assignedAgentId, agentId));
+
+  const [convRows, totalContactsRow] = await Promise.all([
+    db
+      .select({
+        id: conversations.id,
+        status: conversations.status,
+        departmentId: conversations.departmentId,
+        assignedAgentId: conversations.assignedAgentId,
+        createdAt: conversations.createdAt,
+        updatedAt: conversations.updatedAt,
+      })
+      .from(conversations)
+      .where(and(...conditions)),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(contacts)
+      .where(eq(contacts.accountId, accountId)),
+  ]);
+
+  const conversationIds = convRows.map((c) => c.id);
+
+  const messageRows = conversationIds.length
+    ? await db
+        .select({
+          conversationId: messages.conversationId,
+          senderType: messages.senderType,
+          createdAt: messages.createdAt,
+        })
+        .from(messages)
+        .where(inArray(messages.conversationId, conversationIds))
+        .orderBy(messages.conversationId, messages.createdAt)
+    : [];
+
+  // First message per conversation (receptivo/ativo) + adjacent
+  // customer→agent pairs per conversation (TMR samples) in one pass.
+  const firstSenderByConv = new Map<string, "customer" | "agent" | "bot">();
+  const responseSamplesMin: number[] = [];
+  const heatmapCounts = new Map<string, number>();
+
+  let currentConv = "";
+  let pendingCustomerAt: Date | null = null;
+  for (const row of messageRows) {
+    if (row.conversationId !== currentConv) {
+      currentConv = row.conversationId;
+      pendingCustomerAt = null;
+    }
+    if (!firstSenderByConv.has(row.conversationId)) {
+      firstSenderByConv.set(row.conversationId, row.senderType);
+    }
+
+    const dow = mondayIndex(row.createdAt);
+    const hour = row.createdAt.getHours();
+    const key = `${dow}-${hour}`;
+    heatmapCounts.set(key, (heatmapCounts.get(key) ?? 0) + 1);
+
+    if (row.senderType === "customer") {
+      if (!pendingCustomerAt) pendingCustomerAt = row.createdAt;
+    } else if (pendingCustomerAt) {
+      responseSamplesMin.push((row.createdAt.getTime() - pendingCustomerAt.getTime()) / 60_000);
+      pendingCustomerAt = null;
+    }
+  }
+
+  let receptiveCount = 0;
+  let activeCount = 0;
+  for (const conv of convRows) {
+    const first = firstSenderByConv.get(conv.id);
+    if (first === "customer") receptiveCount += 1;
+    else activeCount += 1; // agent/bot-initiated, or no messages yet — counts as an active reach-out
+  }
+
+  const pendingCount = convRows.filter((c) => c.status === "pending").length;
+
+  const closedMins = convRows
+    .filter((c) => c.status === "closed")
+    .map((c) => (c.updatedAt.getTime() - c.createdAt.getTime()) / 60_000)
+    .filter((m) => m >= 0);
+  const avgHandlingMinutes = closedMins.length
+    ? closedMins.reduce((a, b) => a + b, 0) / closedMins.length
+    : null;
+
+  const avgResponseMinutes = responseSamplesMin.length
+    ? responseSamplesMin.reduce((a, b) => a + b, 0) / responseSamplesMin.length
+    : null;
+
+  const heatmap: HeatmapCell[] = [];
+  for (let dow = 0; dow < 7; dow++) {
+    for (let hour = 0; hour < 24; hour++) {
+      heatmap.push({ dow, hour, count: heatmapCounts.get(`${dow}-${hour}`) ?? 0 });
+    }
+  }
+
+  // Department pie — join names/colors, bucket "sem setor" separately.
+  const deptIds = [...new Set(convRows.map((c) => c.departmentId).filter((v): v is string => !!v))];
+  const deptRows = deptIds.length
+    ? await db
+        .select({ id: departments.id, name: departments.name, color: departments.color })
+        .from(departments)
+        .where(inArray(departments.id, deptIds))
+    : [];
+  const deptById = new Map(deptRows.map((d) => [d.id, d]));
+  const deptCounts = new Map<string | null, number>();
+  for (const c of convRows) {
+    const key = c.departmentId ?? null;
+    deptCounts.set(key, (deptCounts.get(key) ?? 0) + 1);
+  }
+  const departmentBreakdown: DepartmentSlice[] = Array.from(deptCounts.entries())
+    .map(([id, count]) => ({
+      id,
+      name: id ? (deptById.get(id)?.name ?? "—") : "Sem setor",
+      color: id ? (deptById.get(id)?.color ?? "#64748b") : "#64748b",
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  // Agent bar — same shape as loadAgentBreakdown but scoped to this
+  // filtered conversation set.
+  const agentIds = [
+    ...new Set(convRows.map((c) => c.assignedAgentId).filter((v): v is string => !!v)),
+  ];
+  const agentRows = agentIds.length
+    ? await db.select({ id: users.id, fullName: users.fullName }).from(users).where(inArray(users.id, agentIds))
+    : [];
+  const agentNameById = new Map(agentRows.map((a) => [a.id, a.fullName]));
+  const byAgent = new Map<string, { open: number; pending: number; closed: number }>();
+  for (const c of convRows) {
+    if (!c.assignedAgentId) continue;
+    const cur = byAgent.get(c.assignedAgentId) ?? { open: 0, pending: 0, closed: 0 };
+    cur[c.status] += 1;
+    byAgent.set(c.assignedAgentId, cur);
+  }
+  const agentBreakdown: AgentStat[] = Array.from(byAgent.entries())
+    .map(([id, c]) => ({
+      agentId: id,
+      name: agentNameById.get(id) ?? "—",
+      openCount: c.open,
+      closedCount: c.closed,
+      totalCount: c.open + c.pending + c.closed,
+    }))
+    .sort((a, b) => b.totalCount - a.totalCount);
+
+  return {
+    totalContactsInBase: totalContactsRow[0]?.count ?? 0,
+    totalConversationsInPeriod: convRows.length,
+    receptiveCount,
+    activeCount,
+    pendingCount,
+    avgHandlingMinutes,
+    avgResponseMinutes,
+    heatmap,
+    departmentBreakdown,
+    agentBreakdown,
+  };
 }

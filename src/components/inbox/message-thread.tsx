@@ -23,6 +23,7 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  CircleX,
 } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -42,6 +43,11 @@ import {
 } from "./message-composer";
 import { deleteAccountMedia } from "@/lib/storage/upload-media";
 import { buildReplyPreview } from "./reply-quote";
+import {
+  CloseConversationModal,
+  SURVEY_MESSAGE,
+  type CloseReason,
+} from "./close-conversation-modal";
 import { toast } from "sonner";
 
 /** Message row as returned by GET /api/conversations/[id]/messages —
@@ -107,10 +113,12 @@ function groupMessagesByDate(messages: MessageWithReactions[]) {
   return groups;
 }
 
+// "Closed" is deliberately excluded — closing a conversation always
+// goes through CloseConversationModal (the client wants an explicit
+// reason recorded), never a silent dropdown flip.
 const STATUS_OPTIONS: { label: string; value: ConversationStatus; color: string }[] = [
   { label: "Open", value: "open", color: "text-primary" },
   { label: "Pending", value: "pending", color: "text-amber-400" },
-  { label: "Closed", value: "closed", color: "text-muted-foreground" },
 ];
 
 const DOODLE_BG_CLASSES =
@@ -138,6 +146,7 @@ export function MessageThread({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  const [closeModalOpen, setCloseModalOpen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -385,6 +394,16 @@ export function MessageThread({
     [conversation],
   );
 
+  const handleConfirmClose = useCallback(
+    async (reason: CloseReason) => {
+      if (reason === "survey") {
+        await handleSend(SURVEY_MESSAGE);
+      }
+      await handleStatusChange("closed");
+    },
+    [handleSend, handleStatusChange],
+  );
+
   // Build a quick id → Message map so reply quotes can be rendered without
   // an extra fetch — the thread already holds the full conversation.
   const messagesById = useMemo(() => {
@@ -551,7 +570,10 @@ export function MessageThread({
 
   const displayName = contact.name || contact.phone;
   const messageGroups = groupMessagesByDate(messages);
-  const currentStatus = STATUS_OPTIONS.find((s) => s.value === conversation.status);
+  const currentStatus =
+    conversation.status === "closed"
+      ? { label: "Closed", value: "closed" as const, color: "text-muted-foreground" }
+      : STATUS_OPTIONS.find((s) => s.value === conversation.status);
   const assignedAgentId = conversation.assigned_agent_id ?? null;
   const currentAssignee = members.find((p) => p.user_id === assignedAgentId);
   const assignLabel = assignedAgentId
@@ -751,6 +773,17 @@ export function MessageThread({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {conversation.status !== "closed" && (
+            <button
+              type="button"
+              onClick={() => setCloseModalOpen(true)}
+              className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-red-500/10 px-2.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
+            >
+              <CircleX className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Encerrar Atendimento</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -828,6 +861,13 @@ export function MessageThread({
         onSendMedia={handleSendMedia}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
+        contactName={contact.name ?? undefined}
+      />
+
+      <CloseConversationModal
+        open={closeModalOpen}
+        onOpenChange={setCloseModalOpen}
+        onConfirm={handleConfirmClose}
       />
     </div>
   );

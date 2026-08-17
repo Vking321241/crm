@@ -18,6 +18,8 @@ import { Skeleton } from "@/components/dashboard/skeleton"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { ResponseTimeChart } from "@/components/dashboard/response-time-chart"
 import { BarChart } from "@/components/tremor/bar-chart"
+import { AdvancedAnalyticsSection } from "@/components/dashboard/advanced-analytics"
+import { useAuth } from "@/hooks/use-auth"
 
 interface StatsPayload {
   metrics: MetricsBundle
@@ -40,6 +42,7 @@ function shortDayLabel(key: string): string {
 }
 
 export default function StatsPage() {
+  const { hasPermission, profileLoading } = useAuth()
   const [data, setData] = useState<StatsPayload | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -72,6 +75,17 @@ export default function StatsPage() {
       Enviadas: p.outgoing,
     })) ?? []
 
+  if (!profileLoading && !hasPermission("reports")) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <p className="text-sm text-muted-foreground">
+          Você não tem acesso aos relatórios. Peça a um administrador para liberar em
+          Configurações → Permissões.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -80,6 +94,8 @@ export default function StatsPage() {
           Contatos e atendimentos dos últimos 30 dias.
         </p>
       </div>
+
+      <AdvancedAnalyticsSection />
 
       {/* Metric cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

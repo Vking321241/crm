@@ -18,12 +18,12 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { db, type Db } from "@/db/client";
-import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSessionUser } from "./session";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
+import { roleHasFullAccess, type PermissionModule } from "./permissions";
+import { getGrantedModules } from "./permissions-data";
 
 // ------------------------------------------------------------
 // Errors
@@ -61,23 +61,17 @@ export interface AccountContext {
   /** Drizzle instance — plain Postgres, no RLS. Every query MUST
    *  filter by `accountId` (or `isCurrentAccountPlatform`) itself. */
   db: Db;
-  /**
-   * LEGACY, Fatia-3 territory. The rest of the CRM (contacts, inbox,
-   * pipelines, broadcasts, AI, the public v1 API, …) hasn't been
-   * ported off Supabase yet and still calls `ctx.supabase.from(...)`.
-   * Kept here only so those files keep *compiling* — there is no
-   * Supabase Auth session behind it anymore (this app's login no
-   * longer touches Supabase Auth at all), so RLS-scoped queries
-   * through this client will not behave as they did pre-Fatia-2.
-   * Null when Supabase env vars aren't configured; routes that use
-   * it assume they're configured, which is exactly the kind of call
-   * site Fatia 3 needs to fix by porting onto `db` instead.
-   */
-  supabase: SupabaseClient;
   userId: string;
   accountId: string;
   role: AccountRole;
-  account: { id: string; name: string; isPlatform: boolean; maxAgentSeats: number };
+  account: {
+    id: string;
+    name: string;
+    isPlatform: boolean;
+    maxAgentSeats: number;
+    defaultCurrency: string;
+    emailDomain: string | null;
+  };
 }
 
 /**
@@ -93,14 +87,8 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     throw new ForbiddenError(`Unknown account role: ${session.accountRole}`);
   }
 
-  const supabase =
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      ? await createSupabaseServerClient()
-      : (null as unknown as SupabaseClient); // see AccountContext.supabase doc
-
   return {
     db,
-    supabase,
     userId: session.userId,
     accountId: session.accountId,
     role: session.accountRole,
@@ -115,6 +103,22 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
   const ctx = await getCurrentAccount();
   if (!hasMinRole(ctx.role, min)) {
     throw new ForbiddenError(`This action requires the '${min}' role or higher`);
+  }
+  return ctx;
+}
+
+/**
+ * Resolve the caller's account context and enforce access to a
+ * granular permission module (src/lib/auth/permissions.ts). Owner/
+ * admin always pass — see `roleHasFullAccess`; agent/viewer need an
+ * explicit grant in `user_permissions`.
+ */
+export async function requireModule(module: PermissionModule): Promise<AccountContext> {
+  const ctx = await getCurrentAccount();
+  if (roleHasFullAccess(ctx.role)) return ctx;
+  const granted = await getGrantedModules(ctx.db, ctx.userId);
+  if (!granted.has(module)) {
+    throw new ForbiddenError(`This action requires access to the '${module}' module`);
   }
   return ctx;
 }

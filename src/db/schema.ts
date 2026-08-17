@@ -11,7 +11,7 @@
 //
 // Fatia 3 ported the rest of the CRM (contacts, conversations,
 // pipelines, broadcasts, notifications, presence) off the old
-// Supabase-flavored tables in supabase/migrations/ onto this file.
+// Supabase-era schema onto this file.
 // Business logic that used to live in SECURITY DEFINER functions or
 // RLS-dependent triggers (notify_conversation_assigned,
 // filter_contacts_by_tags, touch_presence, set_member_role, …) now
@@ -77,6 +77,12 @@ export const accounts = pgTable(
     ownerUserId: uuid("owner_user_id"), // FK added after `users` below via .references() would be circular; enforced at app level + a deferred FK migration statement.
     isPlatform: boolean("is_platform").notNull().default(false),
     maxAgentSeats: integer("max_agent_seats").notNull().default(1),
+    defaultCurrency: text("default_currency").notNull().default("BRL"),
+    // Predefined domain used to auto-build an atendente's login email
+    // (e.g. "cliente1.com" -> admin types "joao", user becomes
+    // joao@cliente1.com). Null until the platform owner or account
+    // admin sets it; POST /api/account/members requires it.
+    emailDomain: text("email_domain"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -153,6 +159,36 @@ export const authTokens = pgTable("auth_tokens", {
   usedAt: timestamp("used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ------------------------------------------------------------
+// api_keys — dashboard-managed machine credentials for /api/v1.
+// Plaintext keys are shown once; only keyHash is stored.
+// ------------------------------------------------------------
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull().unique(),
+    scopes: text("scopes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_api_keys_account").on(table.accountId),
+    index("idx_api_keys_key_hash").on(table.keyHash),
+  ],
+);
 
 // ------------------------------------------------------------
 // whatsapp_instances — same shape as migration 037, ported off RLS.
@@ -235,6 +271,46 @@ export const broadcastRecipientStatusEnum = pgEnum("broadcast_recipient_status",
 export const notificationTypeEnum = pgEnum("notification_type", ["conversation_assigned"]);
 
 export const presenceStatusEnum = pgEnum("presence_status", ["online", "away"]);
+
+export const automationTriggerTypeEnum = pgEnum("automation_trigger_type", [
+  "new_message_received",
+  "first_inbound_message",
+  "keyword_match",
+  "new_contact_created",
+  "conversation_assigned",
+  "tag_added",
+  "time_based",
+  "interactive_reply",
+]);
+
+export const automationStepTypeEnum = pgEnum("automation_step_type", [
+  "send_message",
+  "send_buttons",
+  "send_list",
+  "send_template",
+  "add_tag",
+  "remove_tag",
+  "assign_conversation",
+  "update_contact_field",
+  "create_deal",
+  "wait",
+  "condition",
+  "send_webhook",
+  "close_conversation",
+]);
+
+export const automationLogStatusEnum = pgEnum("automation_log_status", [
+  "success",
+  "partial",
+  "failed",
+]);
+
+export const automationPendingStatusEnum = pgEnum("automation_pending_status", [
+  "pending",
+  "running",
+  "done",
+  "failed",
+]);
 
 const DEFAULT_WELCOME_MESSAGE =
   "Olá! 👋 Obrigado por entrar em contato. Em instantes um de nossos atendentes vai te responder.";
@@ -523,6 +599,10 @@ export const quickReplies = pgTable(
       .references(() => accounts.id, { onDelete: "cascade" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     title: text("title").notNull(),
+    // Trigger keyword for the composer's "/" popover (e.g. "pix" ->
+    // typing "/pix" filters straight to this reply). Optional —
+    // replies without one are only reachable by browsing the list.
+    shortcut: text("shortcut"),
     kind: quickReplyKindEnum("kind").notNull().default("text"),
     contentText: text("content_text"),
     interactivePayload: jsonb("interactive_payload"),
@@ -662,6 +742,116 @@ export const broadcastRecipients = pgTable(
 // conversation-assign route), not a DB trigger, since the old
 // trigger's logic depended on auth.uid().
 // ------------------------------------------------------------
+export const automations = pgTable(
+  "automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    // Audit/original author. Tenancy is always accountId.
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    triggerType: automationTriggerTypeEnum("trigger_type").notNull(),
+    triggerConfig: jsonb("trigger_config")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    isActive: boolean("is_active").notNull().default(false),
+    executionCount: integer("execution_count").notNull().default(0),
+    lastExecutedAt: timestamp("last_executed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_automations_account").on(table.accountId),
+    index("idx_automations_account_trigger_active").on(
+      table.accountId,
+      table.triggerType,
+      table.isActive,
+    ),
+  ],
+);
+
+export const automationSteps = pgTable(
+  "automation_steps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    parentStepId: uuid("parent_step_id").references((): AnyPgColumn => automationSteps.id, {
+      onDelete: "cascade",
+    }),
+    branch: text("branch"),
+    stepType: automationStepTypeEnum("step_type").notNull(),
+    stepConfig: jsonb("step_config")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_automation_steps_automation").on(table.automationId),
+    index("idx_automation_steps_parent").on(table.parentStepId),
+  ],
+);
+
+export const automationLogs = pgTable(
+  "automation_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    triggerEvent: text("trigger_event").notNull(),
+    stepsExecuted: jsonb("steps_executed")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    status: automationLogStatusEnum("status").notNull().default("success"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_automation_logs_automation_created").on(table.automationId, table.createdAt),
+    index("idx_automation_logs_account_created").on(table.accountId, table.createdAt),
+  ],
+);
+
+export const automationPendingExecutions = pgTable(
+  "automation_pending_executions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    logId: uuid("log_id").references(() => automationLogs.id, { onDelete: "set null" }),
+    parentStepId: uuid("parent_step_id").references(() => automationSteps.id, { onDelete: "set null" }),
+    branch: text("branch"),
+    nextStepPosition: integer("next_step_position").notNull().default(0),
+    context: jsonb("context")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    runAt: timestamp("run_at", { withTimezone: true }).notNull(),
+    status: automationPendingStatusEnum("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_automation_pending_due").on(table.status, table.runAt),
+    index("idx_automation_pending_account").on(table.accountId),
+  ],
+);
+
 export const notifications = pgTable(
   "notifications",
   {
@@ -689,6 +879,132 @@ export const notifications = pgTable(
       .on(table.userId)
       .where(sql`${table.readAt} is null`),
   ],
+);
+
+// ------------------------------------------------------------
+// user_permissions — per-user, per-module access grants. Layered on
+// top of `users.accountRole`: owner/admin always have full access
+// (see src/lib/auth/permissions.ts) regardless of what's in this
+// table, so this only matters for agent/viewer rows. Lets an admin
+// give a single agent ("gerente") access to modules their role
+// wouldn't normally unlock (reports, spy mode, internal chat, …)
+// without promoting them to admin, or restrict another agent down
+// to a single module. `module` is a free-text key validated against
+// PERMISSION_MODULES in application code rather than a pgEnum, so
+// adding a new module doesn't require a migration.
+// ------------------------------------------------------------
+export const userPermissions = pgTable(
+  "user_permissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    module: text("module").notNull(),
+    canAccess: boolean("can_access").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_user_permissions_unique").on(table.userId, table.module),
+    index("idx_user_permissions_account").on(table.accountId),
+  ],
+);
+
+// ------------------------------------------------------------
+// conversation_tasks — "Tarefas Agendadas": a reminder/to-do tied to
+// a conversation, created from the inbox sidebar and surfaced again
+// in the standalone Central de Tarefas (Hoje / Atrasadas / Concluídas).
+// ------------------------------------------------------------
+export const conversationTaskStatusEnum = pgEnum("conversation_task_status", [
+  "pending",
+  "done",
+]);
+
+export const conversationTasks = pgTable(
+  "conversation_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    assignedTo: uuid("assigned_to").references(() => users.id, { onDelete: "set null" }),
+    note: text("note").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    status: conversationTaskStatusEnum("status").notNull().default("pending"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_conversation_tasks_account_due").on(table.accountId, table.dueAt),
+    index("idx_conversation_tasks_conversation").on(table.conversationId),
+  ],
+);
+
+// ------------------------------------------------------------
+// internal_channels / members / messages — team-only chat (never
+// visible to customers), separate from the customer-facing
+// conversations/messages tables. A channel is either a 1:1 DM
+// (isDirect=true, exactly 2 members) or a named group/department
+// channel. Read state is tracked per member via `lastReadAt` rather
+// than a per-message read table, mirroring the polling-based unread
+// pattern already used by conversations.unreadCount.
+// ------------------------------------------------------------
+export const internalChannels = pgTable(
+  "internal_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    name: text("name"),
+    isDirect: boolean("is_direct").notNull().default(false),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_internal_channels_account").on(table.accountId)],
+);
+
+export const internalChannelMembers = pgTable(
+  "internal_channel_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => internalChannels.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_internal_channel_members_unique").on(table.channelId, table.userId),
+    index("idx_internal_channel_members_user").on(table.userId),
+  ],
+);
+
+export const internalMessages = pgTable(
+  "internal_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => internalChannels.id, { onDelete: "cascade" }),
+    senderId: uuid("sender_id").references(() => users.id, { onDelete: "set null" }),
+    contentText: text("content_text"),
+    mediaUrl: text("media_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_internal_messages_channel_created").on(table.channelId, table.createdAt)],
 );
 
 // ------------------------------------------------------------

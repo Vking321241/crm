@@ -5,6 +5,7 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useMemo,
   KeyboardEvent,
 } from "react";
 import {
@@ -17,8 +18,8 @@ import {
   Square,
   X,
   Loader2,
-  Sparkles,
   Zap,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -100,6 +101,15 @@ interface MessageComposerProps {
   onSendMedia: (payload: SendMediaPayload) => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
+  /** Substituted into {nome_do_cliente} in quick-reply text. */
+  contactName?: string;
+}
+
+/** Fills the small set of variables quick replies support. Unknown
+ *  placeholders are left as-is rather than stripped, so a typo is
+ *  visible instead of silently vanishing. */
+function applyQuickReplyVariables(text: string, contactName?: string): string {
+  return text.replace(/\{nome_do_cliente\}/g, contactName?.trim() || "cliente");
 }
 
 function formatDuration(seconds: number): string {
@@ -119,15 +129,49 @@ export function MessageComposer({
   onSendMedia,
   replyTo,
   onClearReply,
+  contactName,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+
+  // "/" trigger — the whole account's quick replies are a small,
+  // rarely-changing list, so one fetch per mount (not per keystroke)
+  // is enough to drive the inline suggestion popover below.
+  const [allQuickReplies, setAllQuickReplies] = useState<QuickReply[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/quick-replies", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setAllQuickReplies((data.quick_replies as QuickReply[]) ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Only active when the composer is empty except for a single
+  // "/word" token being typed — matches the spec's "digitar '/' ou
+  // '#pix'" trigger. Any space after the slash exits the trigger, so
+  // normal sentences starting with "/" don't get hijacked mid-type.
+  const slashMatch = /^\/(\S*)$/.exec(text);
+  const slashQuery = slashMatch?.[1]?.toLowerCase() ?? null;
+  const slashSuggestions = useMemo(() => {
+    if (slashQuery === null) return [];
+    return allQuickReplies
+      .filter(
+        (qr) =>
+          (qr.shortcut && qr.shortcut.toLowerCase().startsWith(slashQuery)) ||
+          qr.title.toLowerCase().includes(slashQuery),
+      )
+      .slice(0, 6);
+  }, [allQuickReplies, slashQuery]);
 
   // Media attachment state. `draft` holds an uploaded-but-not-yet-sent
   // attachment; `busy` covers the upload/transcode window.
@@ -205,16 +249,6 @@ export function MessageComposer({
     }
   }, [text, sending, onSend, replyTo?.id]);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend]
-  );
-
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setText(e.target.value);
@@ -223,58 +257,17 @@ export function MessageComposer({
     [adjustHeight]
   );
 
-  // Ask the AI assistant for a suggested reply and drop it into the
-  // composer for the agent to edit + send. Read-only server-side —
-  // nothing is sent until the agent hits Send.
-  const handleDraft = useCallback(async () => {
-    if (drafting) return;
-    setDrafting(true);
-    try {
-      const res = await fetch("/api/ai/draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: conversationId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (data.code === "ai_not_configured") {
-          toast.error("AI isn't set up yet — enable it in Settings → AI Assistant.");
-        } else {
-          toast.error(data.error ?? "Couldn't draft a reply.");
-        }
-        return;
-      }
-      const draftText = typeof data.draft === "string" ? data.draft.trim() : "";
-      if (!draftText) {
-        toast.error("The assistant didn't return a reply.");
-        return;
-      }
-      setText(draftText);
-      requestAnimationFrame(() => {
-        adjustHeight();
-        const el = textareaRef.current;
-        if (el) {
-          el.focus();
-          el.setSelectionRange(el.value.length, el.value.length);
-        }
-      });
-    } catch {
-      toast.error("Couldn't reach the AI assistant.");
-    } finally {
-      setDrafting(false);
-    }
-  }, [drafting, conversationId, adjustHeight]);
-
   // A picked quick reply: text fills the composer. Interactive snippets
   // aren't sendable over UAZAPI (no Meta interactive API here), so their
   // preview text is inserted as plain text instead.
   const handlePickQuickReply = useCallback(
     (qr: QuickReply) => {
       setQuickReplyOpen(false);
-      const body =
+      const raw =
         qr.kind === "interactive" && qr.interactive_payload
           ? interactivePayloadPreviewText(qr.interactive_payload)
           : qr.content_text ?? "";
+      const body = applyQuickReplyVariables(raw, contactName);
       setText((prev) =>
         prev && !/\s$/.test(prev) ? `${prev}\n${body}` : `${prev}${body}`,
       );
@@ -287,7 +280,45 @@ export function MessageComposer({
         }
       });
     },
-    [adjustHeight],
+    [adjustHeight, contactName],
+  );
+
+  // Selecting from the "/" popover replaces the whole draft (it was
+  // just the "/query" token) rather than appending, since there's
+  // nothing meaningful to keep alongside it.
+  const handlePickSlashSuggestion = useCallback(
+    (qr: QuickReply) => {
+      const raw =
+        qr.kind === "interactive" && qr.interactive_payload
+          ? interactivePayloadPreviewText(qr.interactive_payload)
+          : qr.content_text ?? "";
+      setText(applyQuickReplyVariables(raw, contactName));
+      requestAnimationFrame(() => {
+        adjustHeight();
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
+    },
+    [adjustHeight, contactName],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (slashQuery !== null && slashSuggestions.length > 0) {
+          handlePickSlashSuggestion(slashSuggestions[0]);
+          return;
+        }
+        handleSend();
+      } else if (e.key === "Escape" && slashQuery !== null) {
+        setText("");
+      }
+    },
+    [handleSend, slashQuery, slashSuggestions, handlePickSlashSuggestion]
   );
 
   // Upload a captured file and stage it as a draft.
@@ -507,7 +538,45 @@ export function MessageComposer({
           </Button>
         </div>
       ) : (
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2">
+          {slashQuery !== null && slashSuggestions.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-2 w-80 max-w-[90vw] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+              <ul className="max-h-56 overflow-y-auto py-1">
+                {slashSuggestions.map((qr) => (
+                  <li key={qr.id}>
+                    <button
+                      type="button"
+                      onClick={() => handlePickSlashSuggestion(qr)}
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-muted"
+                    >
+                      {qr.kind === "interactive" ? (
+                        <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                      ) : (
+                        <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-foreground">
+                            {qr.title}
+                          </span>
+                          {qr.shortcut && (
+                            <span className="shrink-0 font-mono text-[10px] text-primary">
+                              /{qr.shortcut}
+                            </span>
+                          )}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {qr.kind === "interactive" && qr.interactive_payload
+                            ? interactivePayloadPreviewText(qr.interactive_payload)
+                            : qr.content_text}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {/* Attach menu — photo / video / document / voice. */}
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -557,23 +626,6 @@ export function MessageComposer({
             onClick={() => setQuickReplyOpen(true)}
           >
             <Zap className="h-4 w-4" />
-          </GatedButton>
-
-          <GatedButton
-            variant="ghost"
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            disabled={drafting}
-            title={readOnly ? undefined : t("draftWithAI")}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-primary"
-            onClick={handleDraft}
-          >
-            {drafting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
           </GatedButton>
 
           <textarea

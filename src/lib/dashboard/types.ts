@@ -87,3 +87,36 @@ export interface AgentStat {
   closedCount: number
   totalCount: number
 }
+
+// ============================================================
+// Advanced analytics (Dashboard Analytics e Relatórios) — filtered
+// by date range + optional department/agent.
+// ============================================================
+
+export interface HeatmapCell {
+  /** 0 = Mon … 6 = Sun (Monday-first), matches ResponseTimeBucket. */
+  dow: number
+  /** 0..23, local time. */
+  hour: number
+  count: number
+}
+
+export interface DepartmentSlice {
+  id: string | null
+  name: string
+  color: string
+  count: number
+}
+
+export interface AdvancedAnalytics {
+  totalContactsInBase: number
+  totalConversationsInPeriod: number
+  receptiveCount: number
+  activeCount: number
+  pendingCount: number
+  avgHandlingMinutes: number | null
+  avgResponseMinutes: number | null
+  heatmap: HeatmapCell[]
+  departmentBreakdown: DepartmentSlice[]
+  agentBreakdown: AgentStat[]
+}

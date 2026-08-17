@@ -9,15 +9,52 @@
 // transport changed, not the wire shape.
 // ============================================================
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import type { Db } from "@/db/client";
-import { conversations, contacts, messages, messageReactions } from "@/db/schema";
+import { conversations, contacts, messages, messageReactions, contactTags, tags } from "@/db/schema";
 
 type ContactRow = typeof contacts.$inferSelect;
 type ConversationRow = typeof conversations.$inferSelect;
 type MessageRow = typeof messages.$inferSelect;
 type ReactionRow = typeof messageReactions.$inferSelect;
+
+export interface ApiTag {
+  id: string;
+  name: string;
+  color: string;
+}
+
+/**
+ * Batch-loads tags for a set of contacts (one query, not N+1) — used
+ * to attach the "etiquetas de produtos" chips to the conversation
+ * list without a join-and-group in the main conversations query.
+ */
+export async function loadTagsByContactId(
+  db: Db,
+  contactIds: string[],
+): Promise<Map<string, ApiTag[]>> {
+  const map = new Map<string, ApiTag[]>();
+  if (contactIds.length === 0) return map;
+
+  const rows = await db
+    .select({
+      contactId: contactTags.contactId,
+      id: tags.id,
+      name: tags.name,
+      color: tags.color,
+    })
+    .from(contactTags)
+    .innerJoin(tags, eq(contactTags.tagId, tags.id))
+    .where(inArray(contactTags.contactId, contactIds));
+
+  for (const row of rows) {
+    const list = map.get(row.contactId) ?? [];
+    list.push({ id: row.id, name: row.name, color: row.color });
+    map.set(row.contactId, list);
+  }
+  return map;
+}
 
 export function toApiContact(row: ContactRow) {
   return {
@@ -38,6 +75,7 @@ export function toApiContact(row: ContactRow) {
 export function toApiConversation(
   row: ConversationRow,
   contact?: ContactRow | null,
+  tags?: ApiTag[],
 ) {
   return {
     id: row.id,
@@ -52,6 +90,7 @@ export function toApiConversation(
     created_at: row.createdAt,
     updated_at: row.updatedAt,
     contact: contact ? toApiContact(contact) : undefined,
+    tags: tags ?? [],
   };
 }
 

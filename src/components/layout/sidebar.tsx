@@ -10,9 +10,12 @@ import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   BarChart3,
   Bell,
+  CalendarClock,
   Crown,
+  Eye,
   LayoutDashboard,
   LogOut,
+  MessageCircle,
   MessageSquare,
   Radio,
   Settings,
@@ -25,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import type { AccountRole } from "@/lib/auth/roles";
+import type { PermissionModule } from "@/lib/auth/permissions";
 
 // Per-role chip metadata used in the sidebar's account strip + the
 // Members tab roster. Keeping this near both consumers in a single
@@ -85,15 +89,21 @@ interface NavItem {
    * Purely informational — doesn't affect routing or access.
    */
   beta?: boolean;
+  /** Hidden unless the caller has this permission module (owner/admin
+   *  always do). Omit for items every member can always see. */
+  module?: PermissionModule;
 }
 
 const navItems: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
-  { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
+  { href: "/inbox", labelKey: "inbox", icon: MessageSquare, module: "inbox" },
+  { href: "/tasks", labelKey: "tasks", icon: CalendarClock, module: "tasks" },
+  { href: "/internal-chat", labelKey: "internalChat", icon: MessageCircle, module: "internal_chat" },
+  { href: "/spy", labelKey: "spyMode", icon: Eye, module: "spy_mode" },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
-  { href: "/contacts", labelKey: "contacts", icon: Users },
-  { href: "/stats", labelKey: "stats", icon: BarChart3 },
-  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
+  { href: "/contacts", labelKey: "contacts", icon: Users, module: "contacts" },
+  { href: "/stats", labelKey: "stats", icon: BarChart3, module: "reports" },
+  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio, module: "broadcasts" },
 ];
 
 const bottomNavItems = [
@@ -111,7 +121,8 @@ import { useTranslations } from "next-intl";
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const t = useTranslations("Sidebar");
   const pathname = usePathname();
-  const { profile, profileLoading, account, accountRole, signOut } = useAuth();
+  const { profile, profileLoading, account, accountRole, signOut, hasPermission } = useAuth();
+  const visibleNavItems = navItems.filter((item) => !item.module || hasPermission(item.module));
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
   // Only surface the account-name strip when it actually carries
@@ -203,7 +214,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Main navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(item.href));

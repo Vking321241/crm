@@ -5,6 +5,12 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { quickReplies } from '@/db/schema'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 
+function normalizeShortcut(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim().replace(/^\/+/, '').toLowerCase()
+  return trimmed || null
+}
+
 // Update / delete a single quick reply. Quick replies are account-
 // shared, so every mutation is scoped by `accountId` explicitly (no
 // RLS backing this anymore — see src/lib/auth/account.ts).
@@ -25,6 +31,9 @@ export async function PATCH(
       const title = body.title.trim()
       if (!title) return NextResponse.json({ error: 'title cannot be empty' }, { status: 400 })
       update.title = title
+    }
+    if ('shortcut' in body) {
+      update.shortcut = normalizeShortcut(body.shortcut)
     }
 
     // When `kind` is supplied (e.g. the editor flips Text ↔ Interactive), it

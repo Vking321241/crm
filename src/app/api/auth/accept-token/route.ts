@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { accounts, authTokens, users } from "@/db/schema";
+import { accounts, authTokens, users, userPermissions } from "@/db/schema";
 import { createSession, hashPassword, hashToken } from "@/lib/auth/session";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
+import { DEFAULT_AGENT_MODULES, roleHasFullAccess } from "@/lib/auth/permissions";
 
 // GET /api/auth/accept-token?token=... — anonymous peek, used by
 // /accept/[token] to render "you're invited to <account>" / "set
@@ -130,6 +131,17 @@ export async function POST(request: Request) {
         })
         .returning({ id: users.id });
       userId = created.id;
+
+      if (!roleHasFullAccess(row.role)) {
+        await db.insert(userPermissions).values(
+          DEFAULT_AGENT_MODULES.map((module) => ({
+            userId,
+            accountId: row.accountId!,
+            module,
+            canAccess: true,
+          })),
+        );
+      }
     } else {
       if (!row.targetUserId) {
         return NextResponse.json({ error: "Link inválido" }, { status: 400 });

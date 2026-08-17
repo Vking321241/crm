@@ -17,10 +17,26 @@
     "brandHeadline": "Uma caixa de entrada para cada conversa.",
     "brandSubheadline": "Gerencie o WhatsApp da sua equipe em um único painel organizado."
   },
+  "ErrorPages": {
+    "notFoundTitle": "Página não encontrada",
+    "notFoundDescription": "A página que você procura não existe ou pode ter sido movida.",
+    "notFoundAction": "Voltar ao painel",
+    "errorTitle": "Algo deu errado",
+    "errorDescription": "Ocorreu um erro inesperado. Tente novamente e, se continuar acontecendo, contate o administrador da sua conta.",
+    "errorRetry": "Tentar novamente",
+    "errorHome": "Voltar ao painel",
+    "errorDigest": "Referência do erro: {digest}",
+    "globalErrorTitle": "Algo deu errado",
+    "globalErrorDescription": "A aplicação encontrou um erro inesperado. Tente recarregar a página.",
+    "globalErrorRetry": "Recarregar"
+  },
   "Sidebar": {
     "title": "DivaryTalk",
     "dashboard": "Painel",
     "inbox": "Caixa de entrada",
+    "tasks": "Central de Tarefas",
+    "internalChat": "Chat Interno",
+    "spyMode": "Modo Espião",
     "notifications": "Notificações",
     "contacts": "Contatos",
     "stats": "Estatísticas",
@@ -260,7 +276,8 @@
       "deals": "Negócios",
       "noTags": "Nenhuma etiqueta",
       "noDeals": "Nenhum negócio",
-      "addNotePlaceholder": "Adicionar uma nota..."
+      "addNotePlaceholder": "Adicionar uma nota...",
+      "unknownAuthor": "Equipe"
     },
     "aiBanner": {
       "pausedTitle": "O assistente de IA está pausado aqui",
@@ -1451,6 +1468,7 @@
       "fields": "Campos e etiquetas",
       "deals": "Negócios e moeda",
       "members": "Membros da equipe",
+      "permissions": "Permissões",
       "api": "Chaves de API"
     },
     "groups": {

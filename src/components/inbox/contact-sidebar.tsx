@@ -17,9 +17,11 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
+import { ConversationTasks } from "./conversation-tasks";
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  conversationId?: string | null;
 }
 
 /**
@@ -34,7 +36,7 @@ interface ContactDetailResponse {
   tags?: Tag[];
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({ contact, conversationId }: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
@@ -92,7 +94,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
       const res = await fetch(`/api/contacts/${encodeURIComponent(contact.id)}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note_text: newNote.trim() }),
+        body: JSON.stringify({ noteText: newNote.trim() }),
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -240,6 +242,12 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           {/* Divider */}
           <div className="my-4 border-t border-border" />
 
+          {/* Scheduled tasks */}
+          {conversationId && <ConversationTasks conversationId={conversationId} />}
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
           {/* Notes */}
           <div>
             <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -275,6 +283,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                       {note.note_text}
                     </p>
                     <p className="mt-1 text-[10px] text-muted-foreground">
+                      {note.author_name ?? tSidebar('unknownAuthor')} ·{' '}
                       {format(new Date(note.created_at), "MMM d, yyyy HH:mm")}
                     </p>
                   </div>

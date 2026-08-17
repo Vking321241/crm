@@ -28,6 +28,7 @@ import type { QuickReply, QuickReplyKind } from "@/types";
 interface DraftState {
   id?: string;
   title: string;
+  shortcut: string;
   kind: QuickReplyKind;
   content_text: string;
   interactive_payload: InteractiveMessagePayload;
@@ -36,6 +37,7 @@ interface DraftState {
 function emptyDraft(): DraftState {
   return {
     title: "",
+    shortcut: "",
     kind: "text",
     content_text: "",
     interactive_payload: blankButtonsPayload(),
@@ -68,6 +70,7 @@ export function QuickRepliesManager() {
     setDraft({
       id: qr.id,
       title: qr.title,
+      shortcut: qr.shortcut ?? "",
       kind: qr.kind,
       content_text: qr.content_text ?? "",
       interactive_payload:
@@ -82,8 +85,18 @@ export function QuickRepliesManager() {
     }
     const payload =
       draft.kind === "interactive"
-        ? { title: draft.title, kind: "interactive", interactive_payload: draft.interactive_payload }
-        : { title: draft.title, kind: "text", content_text: draft.content_text };
+        ? {
+            title: draft.title,
+            shortcut: draft.shortcut,
+            kind: "interactive",
+            interactive_payload: draft.interactive_payload,
+          }
+        : {
+            title: draft.title,
+            shortcut: draft.shortcut,
+            kind: "text",
+            content_text: draft.content_text,
+          };
 
     setSaving(true);
     try {
@@ -157,7 +170,14 @@ export function QuickRepliesManager() {
                 <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{qr.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium text-foreground">{qr.title}</p>
+                  {qr.shortcut && (
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-primary">
+                      /{qr.shortcut}
+                    </span>
+                  )}
+                </div>
                 <p className="truncate text-xs text-muted-foreground">
                   {qr.kind === "interactive" && qr.interactive_payload
                     ? interactivePayloadPreviewText(qr.interactive_payload)
@@ -189,15 +209,36 @@ export function QuickRepliesManager() {
           </DialogHeader>
           {draft && (
             <div className="max-h-[70vh] space-y-3 overflow-y-auto">
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Name</label>
-                <Input
-                  value={draft.title}
-                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="e.g. Business hours"
-                  className="bg-muted text-foreground"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Name</label>
+                  <Input
+                    value={draft.title}
+                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                    placeholder="e.g. Business hours"
+                    className="bg-muted text-foreground"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Gatilho (opcional)
+                  </label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                      /
+                    </span>
+                    <Input
+                      value={draft.shortcut}
+                      onChange={(e) => setDraft({ ...draft, shortcut: e.target.value })}
+                      placeholder="pix"
+                      className="bg-muted pl-6 text-foreground"
+                    />
+                  </div>
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Use <code>{"{nome_do_cliente}"}</code> no texto para inserir o nome do contato automaticamente.
+              </p>
               <div className="flex gap-2">
                 <KindTab
                   active={draft.kind === "text"}
