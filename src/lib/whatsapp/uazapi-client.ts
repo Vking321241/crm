@@ -448,12 +448,16 @@ export interface NormalizedInboundMessage {
   /** True when a fromMe message was sent from outside the platform (the phone itself). */
   external: boolean;
   contactName: string | null;
-  type: "text" | "image" | "audio" | "video" | "document" | "location";
+  type: "text" | "image" | "audio" | "video" | "document" | "location" | "reaction";
   text: string | null;
   mediaUrl: string | null;
   mediaBase64: string | null;
   mimeType: string | null;
   externalId: string | null;
+  /** Only set when type === "reaction": the messageId being reacted
+   *  to, and the emoji (empty string means the reaction was removed). */
+  reactionTargetId?: string | null;
+  reactionEmoji?: string | null;
 }
 
 function onlyDigits(s: unknown): string {
@@ -543,6 +547,48 @@ export function parseUazapiWebhook(body: unknown): NormalizedInboundMessage | nu
     unknown
   >;
   const rawType = String(m.messageType ?? m.mediaType ?? m.type ?? "text").toLowerCase();
+
+  // A customer reacting (or un-reacting) to a message on their phone
+  // — best-effort shape guess (Baileys-style `reactionMessage`,
+  // unverified against a live UAZAPI payload), same caveat as every
+  // other field-name guess in this parser. Checked before the normal
+  // type branches below so a reaction never gets misfiled as a plain
+  // text message containing just the emoji.
+  const reactionObj = (m.reactionMessage ??
+    content.reactionMessage ??
+    (m.message && typeof m.message === "object"
+      ? (m.message as Record<string, unknown>).reactionMessage
+      : null)) as Record<string, unknown> | null;
+  if (reactionObj || /reaction/.test(rawType)) {
+    const reactionKey = (reactionObj?.key ?? {}) as Record<string, unknown>;
+    const reactionTargetId = (reactionKey.id ??
+      reactionObj?.messageId ??
+      m.reactionTargetId ??
+      null) as string | null;
+    if (reactionTargetId) {
+      return {
+        phone,
+        lid,
+        isGroup,
+        fromMe,
+        external: fromMe,
+        contactName,
+        type: "reaction",
+        text: null,
+        mediaUrl: null,
+        mediaBase64: null,
+        mimeType: null,
+        externalId: null,
+        reactionTargetId: String(reactionTargetId),
+        reactionEmoji: String(reactionObj?.text ?? m.text ?? ""),
+      };
+    }
+    console.error(
+      "[parseUazapiWebhook] DIAGNOSTIC reaction-shaped payload with no resolvable target message id:",
+      JSON.stringify(body).slice(0, 2000),
+    );
+  }
+
   const mediaUrl =
     (m.fileURL ??
       m.file_url ??

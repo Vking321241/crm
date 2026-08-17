@@ -8,6 +8,7 @@ import {
   contacts,
   conversations,
   messages,
+  messageReactions,
   autoReplySettings,
   DEFAULT_BUSINESS_HOURS,
 } from "@/db/schema";
@@ -116,6 +117,55 @@ async function processInbound(instanceId: string, body: unknown) {
 
   const conversation = await findOrCreateConversation(accountId, ownerUserId, contact.id);
   if (!conversation) return;
+
+  // A reaction to an existing message — never a new message of its
+  // own, so it doesn't go through the regular insert below. `fromMe`
+  // means the connected number's own phone reacted (not through
+  // DivaryTalk's UI, which writes its own reaction directly via
+  // POST /conversations/[id]/reactions) — recorded as an "agent"
+  // reaction with no specific actorId, since the webhook has no way
+  // to know which teammate touched the phone. An empty emoji means
+  // the reaction was removed, mirrored as a delete.
+  if (parsed.type === "reaction") {
+    if (!parsed.reactionTargetId) return;
+    const [target] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(
+        and(eq(messages.conversationId, conversation.id), eq(messages.messageId, parsed.reactionTargetId)),
+      )
+      .limit(1);
+    if (!target) {
+      console.error(
+        "[uazapi webhook] reaction target message not found, externalId:",
+        parsed.reactionTargetId,
+      );
+      return;
+    }
+    const actorType = parsed.fromMe ? "agent" : "customer";
+    try {
+      // Delete-then-insert rather than onConflictDoUpdate: the unique
+      // index includes actor_id, which is NULL here (no specific
+      // users row to point at) — Postgres never treats two NULLs as
+      // conflicting, so ON CONFLICT would silently no-op and leave
+      // duplicate rows behind on a second reaction.
+      await db
+        .delete(messageReactions)
+        .where(and(eq(messageReactions.messageId, target.id), eq(messageReactions.actorType, actorType)));
+      if (parsed.reactionEmoji) {
+        await db.insert(messageReactions).values({
+          messageId: target.id,
+          conversationId: conversation.id,
+          actorType,
+          actorId: null,
+          emoji: parsed.reactionEmoji,
+        });
+      }
+    } catch (err) {
+      console.error("[uazapi webhook] reaction upsert/delete error:", err);
+    }
+    return;
+  }
 
   // Best-effort: pull the contact's WhatsApp profile photo the first
   // time we hear from them (never overwrites one they/we already
