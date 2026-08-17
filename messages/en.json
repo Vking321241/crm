@@ -14,6 +14,8 @@
     "noAccount": "Don't have an account?",
     "createAccount": "Create account",
     "requestAccess": "Access is provisioned by your platform administrator — ask them for an invite.",
+    "newHere": "Not a subscriber yet?",
+    "subscribeCta": "See plans",
     "brandHeadline": "One inbox for every conversation.",
     "brandSubheadline": "Manage your team's WhatsApp from a single, organized workspace."
   },
@@ -1469,6 +1471,7 @@
       "departments": "Departments",
       "members": "Team members",
       "permissions": "Permissions",
+      "birthdays": "Birthdays",
       "subscription": "Subscription"
     },
     "groups": {

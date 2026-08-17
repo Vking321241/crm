@@ -7,7 +7,7 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { requireModule, toErrorResponse } from "@/lib/auth/account";
 import { conversationTransfers, contacts, conversations, departments, users } from "@/db/schema";
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       })
       .from(conversationTransfers)
       .innerJoin(conversations, eq(conversationTransfers.conversationId, conversations.id))
-      .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+      .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.isGroup, false)))
       .where(eq(conversationTransfers.accountId, ctx.accountId))
       .orderBy(desc(conversationTransfers.createdAt))
       .limit(limit);

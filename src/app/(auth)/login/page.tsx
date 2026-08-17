@@ -182,6 +182,26 @@ function LoginPageInner() {
               t("requestAccess")
             )}
           </p>
+
+          {!inviteToken && (
+            <div className="flex items-center gap-3 md:justify-start">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">{t("newHere")}</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          )}
+
+          {!inviteToken && (
+            <Link href="/assinar">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 w-full border-border text-foreground hover:bg-muted"
+              >
+                {t("subscribeCta")}
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
     </div>

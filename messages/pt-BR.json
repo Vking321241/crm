@@ -14,6 +14,8 @@
     "noAccount": "Não tem uma conta?",
     "createAccount": "Criar conta",
     "requestAccess": "O acesso é liberado pelo administrador da plataforma — peça um convite a ele.",
+    "newHere": "Ainda não é assinante?",
+    "subscribeCta": "Conheça os planos",
     "brandHeadline": "Uma caixa de entrada para cada conversa.",
     "brandSubheadline": "Gerencie o WhatsApp da sua equipe em um único painel organizado."
   },
@@ -1469,6 +1471,7 @@
       "departments": "Setores",
       "members": "Membros da equipe",
       "permissions": "Permissões",
+      "birthdays": "Aniversários",
       "subscription": "Assinatura"
     },
     "groups": {

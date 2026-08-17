@@ -57,10 +57,12 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(conversations)
+      .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
       .where(and(eq(conversations.accountId, accountId), eq(conversations.status, "open"))),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(conversations)
+      .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
       .where(
         and(
           eq(conversations.accountId, accountId),
@@ -71,6 +73,7 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(conversations)
+      .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
       .where(
         and(
           eq(conversations.accountId, accountId),
@@ -82,13 +85,20 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(contacts)
-      .where(and(eq(contacts.accountId, accountId), gte(contacts.createdAt, todayStart))),
+      .where(
+        and(
+          eq(contacts.accountId, accountId),
+          eq(contacts.isGroup, false),
+          gte(contacts.createdAt, todayStart),
+        ),
+      ),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(contacts)
       .where(
         and(
           eq(contacts.accountId, accountId),
+          eq(contacts.isGroup, false),
           gte(contacts.createdAt, yesterdayStart),
           lt(contacts.createdAt, todayStart),
         ),
@@ -97,6 +107,7 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
       .select({ count: sql<number>`count(*)::int` })
       .from(messages)
       .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+      .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
       .where(
         and(
           eq(conversations.accountId, accountId),
@@ -108,6 +119,7 @@ export async function loadMetrics(db: Db, accountId: string): Promise<MetricsBun
       .select({ count: sql<number>`count(*)::int` })
       .from(messages)
       .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+      .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
       .where(
         and(
           eq(conversations.accountId, accountId),
@@ -146,6 +158,7 @@ export async function loadConversationsSeries(
     .select({ createdAt: messages.createdAt, senderType: messages.senderType })
     .from(messages)
     .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
     .where(and(eq(conversations.accountId, accountId), gte(messages.createdAt, start)))
     .orderBy(messages.createdAt);
 
@@ -176,6 +189,7 @@ export async function loadResponseTime(db: Db, accountId: string): Promise<Respo
     })
     .from(messages)
     .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
     .where(and(eq(conversations.accountId, accountId), gte(messages.createdAt, fourteenDaysAgo)))
     .orderBy(messages.conversationId, messages.createdAt);
 
@@ -256,14 +270,14 @@ export async function loadActivity(db: Db, accountId: string, limit = 20): Promi
       })
       .from(messages)
       .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-      .innerJoin(contacts, eq(contacts.id, conversations.contactId))
+      .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
       .where(and(eq(conversations.accountId, accountId), eq(messages.senderType, "customer")))
       .orderBy(desc(messages.createdAt))
       .limit(10),
     db
       .select({ id: contacts.id, name: contacts.name, phone: contacts.phone, createdAt: contacts.createdAt })
       .from(contacts)
-      .where(eq(contacts.accountId, accountId))
+      .where(and(eq(contacts.accountId, accountId), eq(contacts.isGroup, false)))
       .orderBy(desc(contacts.createdAt))
       .limit(10),
     db
@@ -283,11 +297,11 @@ export async function loadActivity(db: Db, accountId: string, limit = 20): Promi
   const items: ActivityItem[] = [];
 
   for (const m of msgs) {
-    const who = m.contactName || m.contactPhone || "Unknown";
+    const who = m.contactName || m.contactPhone || "Desconhecido";
     items.push({
       id: `msg-${m.id}`,
       kind: "message",
-      text: `New message from ${who}`,
+      text: `Nova mensagem de ${who}`,
       at: m.createdAt.toISOString(),
       href: `/inbox?c=${m.conversationId}`,
     });
@@ -297,21 +311,30 @@ export async function loadActivity(db: Db, accountId: string, limit = 20): Promi
     items.push({
       id: `contact-${c.id}`,
       kind: "contact",
-      text: `New contact: ${c.name || c.phone}`,
+      text: `Novo contato: ${c.name || c.phone}`,
       at: c.createdAt.toISOString(),
       href: "/contacts",
     });
   }
 
+  const BROADCAST_STATUS_LABEL: Record<string, string> = {
+    draft: "rascunho",
+    scheduled: "agendado",
+    sending: "enviando",
+    sent: "enviado",
+    failed: "falhou",
+    canceled: "cancelado",
+  };
+
   for (const b of broadcastRows) {
     const label =
       b.status === "sent"
-        ? `sent to ${b.totalRecipients} contacts`
-        : `${b.status} (${b.totalRecipients} recipients)`;
+        ? `enviado para ${b.totalRecipients} contatos`
+        : `${BROADCAST_STATUS_LABEL[b.status] ?? b.status} (${b.totalRecipients} destinatários)`;
     items.push({
       id: `broadcast-${b.id}`,
       kind: "broadcast",
-      text: `Broadcast "${b.name}" ${label}`,
+      text: `Disparo "${b.name}" ${label}`,
       at: b.createdAt.toISOString(),
       href: "/broadcasts",
     });
@@ -331,7 +354,7 @@ export async function loadContactsGrowth(
   const rows = await db
     .select({ createdAt: contacts.createdAt })
     .from(contacts)
-    .where(and(eq(contacts.accountId, accountId), gte(contacts.createdAt, start)));
+    .where(and(eq(contacts.accountId, accountId), eq(contacts.isGroup, false), gte(contacts.createdAt, start)));
 
   const keys = lastNDayKeys(rangeDays);
   const buckets = new Map<string, number>();
@@ -353,6 +376,7 @@ export async function loadConversationStatusBreakdown(
   const rows = await db
     .select({ status: conversations.status, count: sql<number>`count(*)::int` })
     .from(conversations)
+    .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
     .where(eq(conversations.accountId, accountId))
     .groupBy(conversations.status);
 
@@ -366,6 +390,7 @@ export async function loadConversationStatusBreakdown(
   const closedRows = await db
     .select({ createdAt: conversations.createdAt, updatedAt: conversations.updatedAt })
     .from(conversations)
+    .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
     .where(and(eq(conversations.accountId, accountId), eq(conversations.status, "closed")));
 
   const mins = closedRows
@@ -386,6 +411,7 @@ export async function loadAgentBreakdown(db: Db, accountId: string): Promise<Age
       count: sql<number>`count(*)::int`,
     })
     .from(conversations)
+    .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
     .where(and(eq(conversations.accountId, accountId), isNotNull(conversations.assignedAgentId)))
     .groupBy(conversations.assignedAgentId, conversations.status);
 
@@ -459,11 +485,12 @@ export async function loadAdvancedAnalytics(
         updatedAt: conversations.updatedAt,
       })
       .from(conversations)
+      .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.isGroup, false)))
       .where(and(...conditions)),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(contacts)
-      .where(eq(contacts.accountId, accountId)),
+      .where(and(eq(contacts.accountId, accountId), eq(contacts.isGroup, false))),
   ]);
 
   const conversationIds = convRows.map((c) => c.id);
@@ -646,7 +673,14 @@ export async function loadTagInteractionStats(
         lt(messages.createdAt, monthEnd),
       ),
     )
-    .where(and(eq(tags.accountId, accountId), eq(tags.isSystem, false), isNotNull(messages.id)))
+    .where(
+      and(
+        eq(tags.accountId, accountId),
+        eq(tags.isSystem, false),
+        isNotNull(messages.id),
+        eq(contacts.isGroup, false),
+      ),
+    )
     .groupBy(tags.id, tags.name, tags.color);
 
   // Tags that exist but had zero matching messages never produce a
