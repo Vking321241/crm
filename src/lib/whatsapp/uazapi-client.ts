@@ -416,11 +416,11 @@ export async function editMessage(
 
 /**
  * Looks up a contact's current WhatsApp profile picture URL via
- * UAZAPI's `POST /v1/contacts/{id}/profile-picture` endpoint (the
- * confirmed route for this — the earlier `/chat/GetProfileImage`
- * guess was wrong and never returned a picture). Used once per
- * contact (when they have no avatar yet) right after an inbound
- * message — see the webhook handler.
+ * UAZAPI's `GET /v1/contacts/{id}/profile-picture` endpoint. A POST
+ * to this same path 405s ("Method Not Allowed" — confirmed against
+ * production logs), so this call is GET. Used once per contact (when
+ * they have no avatar yet) right after an inbound message — see the
+ * webhook handler.
  */
 export async function getProfilePicture(
   cfg: UazapiInstanceConfig,
@@ -430,6 +430,8 @@ export async function getProfilePicture(
   const res = await request<Record<string, unknown>>(
     `${trimBase(cfg.baseUrl)}/v1/contacts/${encodeURIComponent(toDestination(phone))}/profile-picture`,
     { token: cfg.token },
+    undefined,
+    "GET",
   );
   if (!res.ok || !res.data) return { ok: false, error: res.error, raw: res };
   const url = pick(res.data, "url", "image", "profilePictureURL", "imgUrl", "link", "picture", "photo");
