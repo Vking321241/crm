@@ -1,0 +1,1 @@
+ALTER TABLE "contacts" ADD COLUMN "name_edited_by_agent" boolean DEFAULT false NOT NULL;

@@ -449,7 +449,11 @@ async function findOrCreateContact(
 ) {
   const existing = await findExistingContactDb(db, accountId, phone);
   if (existing) {
-    if (name && name !== existing.name) {
+    // Once an agent has hand-edited this contact's name (Contatos, or
+    // inline from the atendimento sidebar), stop syncing it from the
+    // WhatsApp push name — otherwise the very next inbound message
+    // silently reverted the edit.
+    if (name && name !== existing.name && !existing.nameEditedByAgent) {
       await db
         .update(contacts)
         .set({ name, updatedAt: new Date() })

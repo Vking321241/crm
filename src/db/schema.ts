@@ -387,6 +387,12 @@ export const contacts = pgTable(
       sql`regexp_replace(phone, '\\D', '', 'g')`,
     ),
     name: text("name"),
+    // Once an agent edits the name by hand (Contatos, or inline from
+    // the atendimento sidebar), the inbound webhook stops overwriting
+    // it with the WhatsApp push name on every new message — otherwise
+    // the very next message from that contact silently reverted the
+    // manual edit. See findOrCreateContact in the uazapi webhook route.
+    nameEditedByAgent: boolean("name_edited_by_agent").notNull().default(false),
     email: text("email"),
     company: text("company"),
     avatarUrl: text("avatar_url"),

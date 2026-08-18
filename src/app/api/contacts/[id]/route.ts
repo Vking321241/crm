@@ -108,7 +108,14 @@ export async function PATCH(
     }
 
     const update: Partial<typeof contacts.$inferInsert> = { updatedAt: new Date() };
-    if (typeof body.name === "string") update.name = body.name.trim() || null;
+    if (typeof body.name === "string") {
+      update.name = body.name.trim() || null;
+      // Marks this name as agent-owned so the next inbound WhatsApp
+      // message doesn't silently overwrite it with the contact's
+      // WhatsApp push name — see findOrCreateContact in the uazapi
+      // webhook route.
+      update.nameEditedByAgent = true;
+    }
     if (typeof body.email === "string") update.email = body.email.trim() || null;
     if (typeof body.company === "string") update.company = body.company.trim() || null;
     if (typeof body.avatarUrl === "string") update.avatarUrl = body.avatarUrl.trim() || null;

@@ -171,6 +171,7 @@ export async function POST(request: Request) {
           userId: ctx.userId,
           phone,
           name: name || null,
+          nameEditedByAgent: !!name,
           email: email || null,
           company: company || null,
           avatarUrl: avatarUrl || null,
