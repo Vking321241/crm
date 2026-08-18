@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Contact, ContactNote, Tag } from "@/types";
 import {
@@ -13,8 +14,10 @@ import {
   Plus,
   Users,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -24,6 +27,10 @@ import { ConversationTasks } from "./conversation-tasks";
 interface ContactSidebarProps {
   contact: Contact | null;
   conversationId?: string | null;
+  /** Bubbles a successful name edit up so the parent can sync it into
+   *  the message-thread header, which keeps its own copy of the
+   *  contact rather than reading this component's state. */
+  onContactUpdated?: (contact: Contact) => void;
 }
 
 /**
@@ -38,11 +45,14 @@ interface ContactDetailResponse {
   tags?: Tag[];
 }
 
-export function ContactSidebar({ contact, conversationId }: ContactSidebarProps) {
+export function ContactSidebar({ contact, conversationId, onContactUpdated }: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
   const [copied, setCopied] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [savingName, setSavingName] = useState(false);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [newNote, setNewNote] = useState("");
@@ -85,6 +95,50 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
   useEffect(() => {
     void fetchContactData();
   }, [fetchContactData]);
+
+  // Switching to a different conversation/contact should never leave
+  // a stale edit box open.
+  useEffect(() => {
+    setEditingName(false);
+  }, [contact?.id]);
+
+  const handleStartEditName = useCallback(() => {
+    if (!contact) return;
+    setNameDraft(contact.name ?? "");
+    setEditingName(true);
+  }, [contact]);
+
+  const handleSaveName = useCallback(async () => {
+    if (!contact) return;
+    const trimmed = nameDraft.trim();
+    if (trimmed === (contact.name ?? "")) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    try {
+      const res = await fetch(`/api/contacts/${encodeURIComponent(contact.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data?.error || "Falha ao atualizar o nome");
+        return;
+      }
+      setEditingName(false);
+      // The PATCH route returns the raw DB row (camelCase), not the
+      // snake_case shape the frontend `Contact` type expects — build
+      // the updated contact from what we already have instead of
+      // trusting that response's shape.
+      onContactUpdated?.({ ...contact, name: trimmed || undefined });
+    } catch {
+      toast.error("Não foi possível conectar ao servidor.");
+    } finally {
+      setSavingName(false);
+    }
+  }, [contact, nameDraft, onContactUpdated]);
 
   useEffect(() => {
     if (!contact?.is_group) {
@@ -154,9 +208,46 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
                 initials
               )}
             </div>
-            <h3 className="mt-3 text-sm font-semibold text-foreground">
-              {displayName}
-            </h3>
+            {editingName ? (
+              <div className="mt-3 flex w-full items-center gap-1.5 px-2">
+                <Input
+                  autoFocus
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleSaveName();
+                    if (e.key === "Escape") setEditingName(false);
+                  }}
+                  disabled={savingName}
+                  className="h-7 text-center text-sm"
+                  maxLength={120}
+                />
+                <Button
+                  size="sm"
+                  className="h-7 shrink-0 px-2"
+                  onClick={handleSaveName}
+                  disabled={savingName}
+                >
+                  {savingName ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                </Button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={contact.is_group ? undefined : handleStartEditName}
+                disabled={contact.is_group}
+                title={contact.is_group ? undefined : "Editar nome do contato"}
+                className={cn(
+                  "group mt-3 flex items-center gap-1.5 text-sm font-semibold text-foreground",
+                  !contact.is_group && "cursor-pointer hover:text-primary",
+                )}
+              >
+                {displayName}
+                {!contact.is_group && (
+                  <Pencil className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                )}
+              </button>
+            )}
             {contact.company && (
               <p className="text-xs text-muted-foreground">{contact.company}</p>
             )}

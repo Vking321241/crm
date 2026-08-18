@@ -104,6 +104,10 @@ interface MessageThreadProps {
   onBack?: () => void;
   contactPanelOpen?: boolean;
   onToggleContactPanel?: () => void;
+  /** Latest contact row from the page's own state (e.g. right after a
+   *  name edit in the sidebar) — synced into the header immediately,
+   *  instead of waiting for the next poll cycle. */
+  contactOverride?: Contact | null;
 }
 
 /** Poll cadence for the open thread — messages + conversation header. */
@@ -177,6 +181,7 @@ export function MessageThread({
   onBack,
   contactPanelOpen,
   onToggleContactPanel,
+  contactOverride,
 }: MessageThreadProps) {
   const t = useTranslations("Inbox.messageThread");
   const tQuote = useTranslations("Inbox.replyQuote");
@@ -245,6 +250,15 @@ export function MessageThread({
   useEffect(() => {
     onConversationLoadedRef.current = onConversationLoaded;
   });
+
+  // Reflect a contact edit made elsewhere (the sidebar's inline name
+  // editor) into the header immediately, without waiting for the next
+  // POLL_MS refetch.
+  useEffect(() => {
+    if (contactOverride && contactOverride.id === contact?.id) {
+      setContact(contactOverride);
+    }
+  }, [contactOverride, contact?.id]);
 
   // Fetch the conversation + its full message thread. Polled on an
   // interval instead of Supabase Realtime (there's no realtime layer

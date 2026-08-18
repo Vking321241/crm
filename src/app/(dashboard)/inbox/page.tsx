@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import type { Conversation } from "@/types";
+import type { Contact, Conversation } from "@/types";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
@@ -59,10 +59,20 @@ export default function InboxPage() {
       if (activeConversationId === conv.id) return;
       setActiveConversationId(conv.id);
       setActiveConversation(conv);
+      // Every freshly opened conversation starts with the contact
+      // panel minimized — the agent expands it on demand instead of
+      // it eating screen space by default on every open.
+      setContactPanelOpen(false);
       router.replace(`/inbox?c=${conv.id}`, { scroll: false });
     },
     [activeConversationId, router],
   );
+
+  const handleContactUpdated = useCallback((updated: Contact) => {
+    setActiveConversation((prev) =>
+      prev && prev.contact?.id === updated.id ? { ...prev, contact: updated } : prev,
+    );
+  }, []);
 
   // Mobile "back" — deselect the conversation so the list pane comes
   // back. Also clears the ?c= param so a refresh lands on the list
@@ -122,13 +132,18 @@ export default function InboxPage() {
             onBack={handleCloseConversation}
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
+            contactOverride={activeContact}
           />
         </div>
 
         {/* Right panel: Contact sidebar — desktop only. */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
-            <ContactSidebar contact={activeContact} conversationId={activeConversationId} />
+            <ContactSidebar
+              contact={activeContact}
+              conversationId={activeConversationId}
+              onContactUpdated={handleContactUpdated}
+            />
           </div>
         )}
       </div>
