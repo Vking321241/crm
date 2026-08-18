@@ -415,12 +415,12 @@ export async function editMessage(
 }
 
 /**
- * Looks up a contact's current WhatsApp profile picture URL.
- * Endpoint/field names are a best guess (mirroring the
- * `/instance/*` naming convention used elsewhere in this file) —
- * adjust if your UAZAPI install differs, same as every other call
- * here. Used once per contact (when they have no avatar yet) right
- * after an inbound message — see the webhook handler.
+ * Looks up a contact's current WhatsApp profile picture URL via
+ * UAZAPI's `POST /v1/contacts/{id}/profile-picture` endpoint (the
+ * confirmed route for this — the earlier `/chat/GetProfileImage`
+ * guess was wrong and never returned a picture). Used once per
+ * contact (when they have no avatar yet) right after an inbound
+ * message — see the webhook handler.
  */
 export async function getProfilePicture(
   cfg: UazapiInstanceConfig,
@@ -428,18 +428,16 @@ export async function getProfilePicture(
 ): Promise<UazapiResult<{ url: string }> & { raw?: unknown }> {
   if (!cfg.token) return { ok: false, error: "Instance is not connected" };
   const res = await request<Record<string, unknown>>(
-    `${trimBase(cfg.baseUrl)}/chat/GetProfileImage`,
+    `${trimBase(cfg.baseUrl)}/v1/contacts/${encodeURIComponent(toDestination(phone))}/profile-picture`,
     { token: cfg.token },
-    { number: toDestination(phone) },
   );
   if (!res.ok || !res.data) return { ok: false, error: res.error, raw: res };
-  const url = pick(res.data, "url", "profilePictureURL", "imgUrl", "link", "image");
-  // TEMP DIAGNOSTIC — field names above are an unverified guess (see
-  // the equivalent note on parseUazapiWebhook's media fields). `raw`
-  // is captured into webhook_debug_log by the caller on failure so
-  // the real shape can be read from GET /api/debug/webhook-log
-  // instead of container logs we don't have access to. Safe to trim
-  // once confirmed working.
+  const url = pick(res.data, "url", "image", "profilePictureURL", "imgUrl", "link", "picture", "photo");
+  // TEMP DIAGNOSTIC — `raw` is still captured into webhook_debug_log by
+  // the caller on failure so the exact response field name can be
+  // confirmed from GET /api/debug/webhook-log instead of container
+  // logs we don't have access to. Safe to trim this comment + the raw
+  // capture once a real payload confirms the field name above.
   if (!url) return { ok: false, error: "No profile picture available", raw: res.data };
   return { ok: true, data: { url } };
 }
