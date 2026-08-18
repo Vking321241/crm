@@ -19,7 +19,6 @@ import { Loader2, ShieldCheck } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { RequireRole } from '@/components/auth/require-role';
 import type { AccountRole } from '@/lib/auth/roles';
@@ -194,14 +193,36 @@ export function PermissionsMatrix() {
                         {modules.map((mod) => {
                           const cellId = `${member.user_id}:${mod.key}`;
                           const checked = member.full_access || member.granted_modules.includes(mod.key);
+                          const disabled = member.full_access || pendingCell === cellId;
                           return (
                             <td key={mod.key} className="px-3 py-3 text-center">
-                              <Checkbox
-                                checked={checked}
-                                disabled={member.full_access || pendingCell === cellId}
-                                onCheckedChange={(v) => toggle(member, mod.key, v === true)}
+                              <button
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => toggle(member, mod.key, !checked)}
+                                aria-pressed={checked}
                                 aria-label={`${mod.label} — ${member.full_name}`}
-                              />
+                                title={mod.description}
+                                className={`inline-flex size-7 items-center justify-center rounded-md border transition-colors ${
+                                  checked
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : 'border-border bg-muted text-transparent hover:bg-muted/70 hover:border-muted-foreground/40'
+                                } ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                              >
+                                {pendingCell === cellId ? (
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                ) : (
+                                  <svg viewBox="0 0 12 12" className="size-3.5" fill="none">
+                                    <path
+                                      d="M2.5 6.5l2.2 2.2L9.5 3.5"
+                                      stroke="currentColor"
+                                      strokeWidth="1.8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                )}
+                              </button>
                             </td>
                           );
                         })}

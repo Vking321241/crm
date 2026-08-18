@@ -354,6 +354,11 @@ async function processInbound(instanceId: string, body: unknown) {
         lastMessageAt: new Date(),
         unreadCount: parsed.fromMe ? conversation.unreadCount : (conversation.unreadCount || 0) + 1,
         updatedAt: new Date(),
+        // Every new customer message reopens the conversation as
+        // "pending" — it stays closed to the attendant until someone
+        // replies (see conversations/[id]/messages/route.ts, which
+        // flips it back to "open" on send).
+        ...(parsed.fromMe ? {} : { status: "pending" as const }),
       })
       .where(eq(conversations.id, conversation.id));
   } catch (err) {
@@ -514,7 +519,7 @@ async function findOrCreateConversation(accountId: string, ownerUserId: string, 
   try {
     const [created] = await db
       .insert(conversations)
-      .values({ accountId, userId: ownerUserId, contactId })
+      .values({ accountId, userId: ownerUserId, contactId, status: "pending" })
       .returning();
     return created;
   } catch (err) {

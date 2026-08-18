@@ -34,6 +34,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
+import { PERMISSION_MODULES } from '@/lib/auth/permissions';
+import { DEFAULT_AGENT_MODULES } from '@/lib/auth/permissions';
 
 type CreatableRole = 'agent' | 'manager';
 
@@ -69,6 +71,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<CreatableRole>('agent');
+  const [modules, setModules] = useState<string[]>([...DEFAULT_AGENT_MODULES]);
   const [submitting, setSubmitting] = useState(false);
 
   function reset() {
@@ -77,7 +80,12 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setEmailTouched(false);
     setPassword('');
     setRole('agent');
+    setModules([...DEFAULT_AGENT_MODULES]);
     setSubmitting(false);
+  }
+
+  function toggleModule(key: string, checked: boolean) {
+    setModules((prev) => (checked ? [...prev, key] : prev.filter((m) => m !== key)));
   }
 
   function handleNameChange(value: string) {
@@ -111,6 +119,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           email: email.trim(),
           password,
           role,
+          ...(role === 'agent' ? { modules } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -207,9 +216,62 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             <p className="text-xs text-muted-foreground">
               {role === 'manager'
                 ? 'Gerente vê e edita tudo, inclusive Configurações do espaço de trabalho — igual a você, exceto ações exclusivas do proprietário.'
-                : 'Membro começa com acesso básico (Central de Atendimento, Tarefas, Chat Interno, Contatos). Ajuste depois em Configurações → Permissões.'}
+                : 'Escolha abaixo o que esse Membro pode acessar. Dá para ajustar depois em Configurações → Permissões.'}
             </p>
           </div>
+
+          {role === 'agent' && (
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">Permissões</Label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {PERMISSION_MODULES.map((mod) => {
+                  const checked = modules.includes(mod.key);
+                  return (
+                    <button
+                      key={mod.key}
+                      type="button"
+                      onClick={() => toggleModule(mod.key, !checked)}
+                      aria-pressed={checked}
+                      title={mod.description}
+                      className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        checked
+                          ? 'border-primary/50 bg-primary/10'
+                          : 'border-border bg-muted hover:bg-muted/70'
+                      }`}
+                    >
+                      <span
+                        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                          checked
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-transparent'
+                        }`}
+                      >
+                        {checked && (
+                          <svg viewBox="0 0 12 12" className="size-3" fill="none">
+                            <path
+                              d="M2.5 6.5l2.2 2.2L9.5 3.5"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {mod.label}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {mod.description}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="bg-popover border-border">

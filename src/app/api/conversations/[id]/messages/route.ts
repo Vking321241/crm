@@ -230,6 +230,11 @@ export async function POST(
         lastMessageText: isMedia ? storedContentText || `[${body.message_type}]` : storedContentText!,
         lastMessageAt: new Date(),
         updatedAt: new Date(),
+        // Replying is what takes a conversation off "pending" — it's
+        // now being attended. A closed conversation stays closed
+        // (re-opening it is an explicit action, not implied by a
+        // stray message), it just moves its lastMessage bookkeeping.
+        ...(conversation.status === "pending" ? { status: "open" as const } : {}),
       })
       .where(eq(conversations.id, id));
 
