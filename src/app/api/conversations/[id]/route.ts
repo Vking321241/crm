@@ -96,6 +96,19 @@ export async function PATCH(
       update.status = body.status as (typeof VALID_STATUSES)[number];
     }
 
+    // Acting on a conversation (closing or reopening it) implicitly
+    // claims it when nobody owns it yet — inbound conversations never
+    // get an assignee just by existing (see the webhook's
+    // findOrCreateConversation), so without this a plain agent who
+    // closes one makes it invisible to themselves: Ativos/Fechados
+    // are scoped to assigned_agent_id (see GET /api/conversations),
+    // and only owner/manager bypass that. Skipped when the same
+    // request also sets assigned_agent_id explicitly (a real
+    // transfer, handled below, with its own acknowledgment flow).
+    if ("status" in body && !("assigned_agent_id" in body) && !existing.assignedAgentId) {
+      update.assignedAgentId = ctx.userId;
+    }
+
     // Transferring to a department releases the current assignment
     // (unless the same request also sets assigned_agent_id) so the
     // conversation lands in that department's shared queue rather
