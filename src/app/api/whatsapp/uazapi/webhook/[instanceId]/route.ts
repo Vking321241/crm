@@ -354,11 +354,13 @@ async function processInbound(instanceId: string, body: unknown) {
         lastMessageAt: new Date(),
         unreadCount: parsed.fromMe ? conversation.unreadCount : (conversation.unreadCount || 0) + 1,
         updatedAt: new Date(),
-        // Every new customer message reopens the conversation as
-        // "pending" — it stays closed to the attendant until someone
-        // replies (see conversations/[id]/messages/route.ts, which
-        // flips it back to "open" on send).
-        ...(parsed.fromMe ? {} : { status: "pending" as const }),
+        // A new customer message on an "open" conversation flips it to
+        // "pending" — closed to the attendant until someone replies
+        // (see conversations/[id]/messages/route.ts, which flips it
+        // back to "open" on send). A "closed" conversation is a
+        // deliberate agent action and must NOT reopen on its own just
+        // because the customer wrote again — only "open" transitions.
+        ...(parsed.fromMe || conversation.status === "closed" ? {} : { status: "pending" as const }),
       })
       .where(eq(conversations.id, conversation.id));
   } catch (err) {

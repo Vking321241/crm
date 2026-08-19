@@ -115,9 +115,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ conversation: toApiConversation(existing) });
     }
 
+    // An agent starting a conversation is already "attending" it —
+    // without this, the row lands at status "open" (the schema
+    // default) with no assignedAgentId, which makes it invisible to
+    // its own creator: a plain agent only sees "open"/"closed" rows
+    // assigned to them (see GET above), and it's not "pending"
+    // either since that's reserved for unanswered inbound contact.
     const [created] = await ctx.db
       .insert(conversations)
-      .values({ accountId: ctx.accountId, userId: ctx.userId, contactId })
+      .values({
+        accountId: ctx.accountId,
+        userId: ctx.userId,
+        contactId,
+        status: "open",
+        assignedAgentId: ctx.userId,
+      })
       .returning();
 
     return NextResponse.json({ conversation: toApiConversation(created) }, { status: 201 });
